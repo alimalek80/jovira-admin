@@ -7,6 +7,7 @@ import { resolveAdminAppUser } from "@/lib/auth/server-auth";
 
 const navigationItems = [
   { href: "/", label: "Dashboard" },
+  { href: "/web-sections", label: "Web Sections" },
   { href: "/agencies", label: "Agencies" },
   { href: "/hotels", label: "Hotels" },
   { href: "/reservations", label: "Reservations" },
