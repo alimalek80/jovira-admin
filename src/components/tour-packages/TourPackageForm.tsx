@@ -61,6 +61,28 @@ export default function TourPackageForm({
       return;
     }
 
+    // cost_price cross-field validation
+    const costStr = values.cost_price.trim();
+    if (costStr) {
+      const cost = parseFloat(costStr);
+      if (!Number.isNaN(cost)) {
+        if (cost < 0) {
+          setFieldErrors({ cost_price: "Cost price cannot be negative." });
+          return;
+        }
+        const pub = parseFloat(values.public_price.trim());
+        if (!Number.isNaN(pub) && pub > 0 && cost >= pub) {
+          setFieldErrors({ cost_price: "Cost price must be lower than the public price to ensure a positive margin." });
+          return;
+        }
+        const agency = parseFloat(values.agency_price.trim());
+        if (!Number.isNaN(agency) && agency > 0 && cost >= agency) {
+          setFieldErrors({ cost_price: "Cost price must be lower than the agency price to ensure a positive margin." });
+          return;
+        }
+      }
+    }
+
     try {
       await onSubmit(values);
     } catch (error) {
@@ -75,11 +97,36 @@ export default function TourPackageForm({
     }
   };
 
+  // Margin display — computed when cost_price + at least one price are set
+  const costNum = parseFloat(values.cost_price);
+  const pubNum = parseFloat(values.public_price);
+  const agencyNum = parseFloat(values.agency_price);
+  const marginItems: { label: string; margin: number }[] = [];
+  if (!Number.isNaN(costNum) && !Number.isNaN(pubNum) && pubNum > 0)
+    marginItems.push({ label: "Public", margin: pubNum - costNum });
+  if (!Number.isNaN(costNum) && !Number.isNaN(agencyNum) && agencyNum > 0)
+    marginItems.push({ label: "Agency", margin: agencyNum - costNum });
+
   const inputClassName =
     "w-full rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs text-slate-800 outline-none transition focus:border-slate-500 focus:ring-2 focus:ring-slate-200";
 
   return (
     <form onSubmit={handleSubmit} className="grid gap-3 sm:grid-cols-2">
+      {/* Margin preview — top row */}
+      {marginItems.length > 0 ? (
+        <div className="sm:col-span-2 flex flex-wrap items-center gap-x-5 gap-y-1 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-[11px]">
+          <span className="font-semibold text-slate-500">Margin Preview</span>
+          {marginItems.map(({ label, margin }) => (
+            <span key={label} className="flex items-center gap-1.5">
+              <span className="text-slate-400">{label}:</span>
+              <span className={margin > 0 ? "font-semibold text-emerald-700" : margin < 0 ? "font-semibold text-red-600" : "text-slate-500"}>
+                {margin.toFixed(2)}
+              </span>
+            </span>
+          ))}
+        </div>
+      ) : null}
+
       <div>
         <label htmlFor="name" className="mb-1 block text-[11px] font-medium text-slate-600">Name</label>
         <input id="name" value={values.name} onChange={(e) => update("name", e.target.value)} className={inputClassName} />
@@ -114,6 +161,32 @@ export default function TourPackageForm({
         <label htmlFor="agency_price" className="mb-1 block text-[11px] font-medium text-slate-600">Agency Price</label>
         <input id="agency_price" value={values.agency_price} onChange={(e) => update("agency_price", e.target.value)} className={inputClassName} />
         {fieldErrors.agency_price ? <p className="mt-1 text-[11px] text-red-600">{fieldErrors.agency_price}</p> : null}
+      </div>
+
+      {/* Cost Price — Internal only */}
+      <div className="sm:col-span-2 rounded-md border border-amber-200 bg-amber-50/50 p-2">
+        <label htmlFor="cost_price" className="mb-1 block text-[11px] font-medium text-slate-600">
+          Cost Price (Internal)
+          <span className="ml-1.5 inline-flex items-center rounded-full bg-amber-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-amber-800">
+            🔒 Internal
+          </span>
+        </label>
+        <input
+          id="cost_price"
+          type="number"
+          step="0.01"
+          min="0"
+          value={values.cost_price}
+          onChange={(e) => update("cost_price", e.target.value)}
+          className={inputClassName}
+          placeholder="0.00"
+        />
+        {fieldErrors.cost_price ? (
+          <p className="mt-1 text-[11px] text-red-600">{fieldErrors.cost_price}</p>
+        ) : null}
+        <p className="mt-1 text-[11px] italic text-amber-700">
+          Internal supplier cost paid by Jovira. Used for profit margin calculation. Never shown to agencies or clients.
+        </p>
       </div>
 
       <div>

@@ -46,6 +46,7 @@ const transferSchema = z.object({
   currency: z.string(),
   public_price: z.string(),
   agency_price: z.string(),
+  cost_price: z.string(),
 });
 
 type TransferFormValues = z.infer<typeof transferSchema>;
@@ -72,6 +73,7 @@ const emptyForm = (): TransferFormValues => ({
   currency: "",
   public_price: "",
   agency_price: "",
+  cost_price: "",
 });
 
 function itemToForm(item: TransferInventoryItem): TransferFormValues {
@@ -97,6 +99,7 @@ function itemToForm(item: TransferInventoryItem): TransferFormValues {
     currency: item.currency != null ? String(item.currency) : "",
     public_price: item.public_price ?? "",
     agency_price: item.agency_price ?? "",
+    cost_price: item.cost_price ?? "",
   };
 }
 
@@ -136,6 +139,7 @@ function formToPayload(values: TransferFormValues): TransferInventoryInput {
     currency: values.currency ? Number(values.currency) : null,
     public_price: values.public_price.trim() || null,
     agency_price: values.agency_price.trim() || null,
+    cost_price: values.cost_price.trim() || null,
   };
 }
 
@@ -319,6 +323,29 @@ function TransferForm({
       setFieldErrors(errs);
       return;
     }
+
+    // cost_price cross-field validation
+    const costStr = values.cost_price.trim();
+    if (costStr) {
+      const cost = parseFloat(costStr);
+      if (!Number.isNaN(cost)) {
+        if (cost < 0) {
+          setFieldErrors({ cost_price: "Cost price cannot be negative." });
+          return;
+        }
+        const pub = parseFloat(values.public_price.trim());
+        if (!Number.isNaN(pub) && pub > 0 && cost >= pub) {
+          setFieldErrors({ cost_price: "Cost price must be lower than the public price to ensure a positive margin." });
+          return;
+        }
+        const agency = parseFloat(values.agency_price.trim());
+        if (!Number.isNaN(agency) && agency > 0 && cost >= agency) {
+          setFieldErrors({ cost_price: "Cost price must be lower than the agency price to ensure a positive margin." });
+          return;
+        }
+      }
+    }
+
     try {
       await mutation.mutateAsync(formToPayload(validation.data));
     } catch (error) {
@@ -328,8 +355,33 @@ function TransferForm({
     }
   }
 
+  const trCostNum = parseFloat(values.cost_price);
+  const trPubNum = parseFloat(values.public_price);
+  const trAgencyNum = parseFloat(values.agency_price);
+  const trCurrCode = currencyOptions.find((o) => o.id === values.currency)?.label.split(" - ")[0] ?? "";
+  const trMarginItems: { label: string; margin: number }[] = [];
+  if (!Number.isNaN(trCostNum)) {
+    if (!Number.isNaN(trPubNum) && trPubNum > 0) trMarginItems.push({ label: "Public", margin: trPubNum - trCostNum });
+    if (!Number.isNaN(trAgencyNum) && trAgencyNum > 0) trMarginItems.push({ label: "Agency", margin: trAgencyNum - trCostNum });
+  }
+
   return (
     <form onSubmit={handleSubmit} className="grid gap-3 sm:grid-cols-2">
+      {/* Margin preview — top row */}
+      {trMarginItems.length > 0 ? (
+        <div className="sm:col-span-2 flex flex-wrap items-center gap-x-5 gap-y-1 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-[11px]">
+          <span className="font-semibold text-slate-500">Margin Preview</span>
+          {trMarginItems.map(({ label, margin }) => (
+            <span key={label} className="flex items-center gap-1.5">
+              <span className="text-slate-400">{label}:</span>
+              <span className={margin > 0 ? "font-semibold text-emerald-700" : margin < 0 ? "font-semibold text-red-600" : "text-slate-500"}>
+                {trCurrCode ? `${trCurrCode} ` : ""}{margin.toFixed(2)}
+              </span>
+            </span>
+          ))}
+        </div>
+      ) : null}
+
       {/* Provider */}
       <div className="sm:col-span-2">
         <label htmlFor="tr_provider" className="mb-1 block text-[11px] font-medium text-slate-600">
@@ -424,6 +476,32 @@ function TransferForm({
           placeholder="0.00"
         />
         <p className="mt-1 text-[11px] text-slate-500 italic">Shown to AGENCY &amp; STAFF users</p>
+      </div>
+
+      {/* Cost Price — Internal */}
+      <div className="sm:col-span-2 rounded-md border border-amber-200 bg-amber-50/50 p-2">
+        <label htmlFor="tr_cost_price" className="mb-1 block text-[11px] font-medium text-slate-600">
+          Cost Price (Internal)
+          <span className="ml-1.5 inline-flex items-center rounded-full bg-amber-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-amber-800">
+            🔒 Internal
+          </span>
+        </label>
+        <input
+          id="tr_cost_price"
+          type="number"
+          step="0.01"
+          min="0"
+          value={values.cost_price}
+          onChange={(e) => set("cost_price", e.target.value)}
+          className={inputCls}
+          placeholder="0.00"
+        />
+        {fieldErrors.cost_price ? (
+          <p className="mt-1 text-[11px] text-red-600">{fieldErrors.cost_price}</p>
+        ) : null}
+        <p className="mt-1 text-[11px] italic text-amber-700">
+          Internal supplier cost paid by Jovira. Used for profit margin calculation. Never shown to agencies or clients.
+        </p>
       </div>
 
       {formError ? <p className="sm:col-span-2 text-xs text-red-600">{formError}</p> : null}

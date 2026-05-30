@@ -5,20 +5,6 @@ import DashboardUserMenu from "@/components/dashboard-user-menu";
 import DashboardSidebarNav from "@/components/dashboard-sidebar-nav";
 import { resolveAdminAppUser } from "@/lib/auth/server-auth";
 
-const navigationItems = [
-  { href: "/", label: "Dashboard" },
-  { href: "/web-sections", label: "Web Sections" },
-  { href: "/agencies", label: "Agencies" },
-  { href: "/hotels", label: "Hotels" },
-  { href: "/reservations", label: "Reservations" },
-  { href: "/flights", label: "Flights" },
-  { href: "/tour-packages", label: "Tour Packages" },
-  { href: "/excursions", label: "Excursions" },
-  { href: "/excursion-services", label: "Excursion Services" },
-  { href: "/transfer-providers", label: "Transfer Providers" },
-  { href: "/transfers", label: "Transfers" },
-];
-
 export default async function DashboardLayout({
   children,
 }: Readonly<{ children: ReactNode }>) {
@@ -43,7 +29,7 @@ export default async function DashboardLayout({
           <h1 className="mt-2 text-lg font-semibold tracking-tight">Admin Panel</h1>
         </div>
 
-        <DashboardSidebarNav items={navigationItems} />
+        <DashboardSidebarNav />
       </aside>
 
       <div className="ml-64 min-h-screen">

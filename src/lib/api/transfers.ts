@@ -26,6 +26,7 @@ export interface TransferInventoryItem {
   currencyCode: string;
   public_price: string | null;
   agency_price: string | null;
+  cost_price: string | null;
 }
 
 export interface TransferInventoryInput {
@@ -50,6 +51,7 @@ export interface TransferInventoryInput {
   currency?: number | null;
   public_price?: string | null;
   agency_price?: string | null;
+  cost_price?: string | null;
 }
 
 export interface PaginatedTransferInventory {
@@ -132,6 +134,7 @@ function normalizeTransferItem(row: unknown): TransferInventoryItem | null {
     currencyCode: typeof r.currency === "object" ? extractCode(r.currency) : "",
     public_price: str(r.public_price),
     agency_price: str(r.agency_price),
+    cost_price: str(r.cost_price),
   };
 }
 

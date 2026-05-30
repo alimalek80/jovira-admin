@@ -8,6 +8,7 @@ export const tourPackagePayloadSchema = z.object({
   nights: z.number().int().min(0, "Nights must be 0 or more."),
   public_price: z.string().trim().min(1, "Public price is required."),
   agency_price: z.string().trim().min(1, "Agency price is required."),
+  cost_price: z.string().nullable().optional(),
   name_en: z.string().trim().optional().or(z.literal("")),
   name_tr: z.string().trim().optional().or(z.literal("")),
   name_ru: z.string().trim().optional().or(z.literal("")),
@@ -23,6 +24,7 @@ export type TourPackageFormValues = {
   nights: string;
   public_price: string;
   agency_price: string;
+  cost_price: string;
   name_en: string;
   name_tr: string;
   name_ru: string;
@@ -45,6 +47,7 @@ export function toTourPackagePayload(values: TourPackageFormValues): TourPackage
     nights: safeNights,
     public_price: values.public_price.trim(),
     agency_price: values.agency_price.trim(),
+    cost_price: values.cost_price.trim() || null,
     name_en: values.name_en.trim(),
     name_tr: values.name_tr.trim(),
     name_ru: values.name_ru.trim(),
@@ -62,6 +65,7 @@ export function toTourPackageFormValues(payload?: Partial<TourPackagePayload>): 
     nights: typeof payload?.nights === "number" ? String(payload.nights) : "",
     public_price: payload?.public_price ?? "",
     agency_price: payload?.agency_price ?? "",
+    cost_price: payload?.cost_price ?? "",
     name_en: payload?.name_en ?? "",
     name_tr: payload?.name_tr ?? "",
     name_ru: payload?.name_ru ?? "",

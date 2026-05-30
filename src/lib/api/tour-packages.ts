@@ -8,6 +8,7 @@ export type TourPackagePayload = {
   nights: number;
   public_price: string;
   agency_price: string;
+  cost_price?: string | null;
   name_en?: string;
   name_tr?: string;
   name_ru?: string;
@@ -24,6 +25,7 @@ export type TourPackageResponse = {
   nights: number;
   public_price: string;
   agency_price: string;
+  cost_price?: string | null;
   name_en?: string;
   name_tr?: string;
   name_ru?: string;

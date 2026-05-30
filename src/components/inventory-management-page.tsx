@@ -37,6 +37,10 @@ type FormField = {
   source?: SelectSource;
   multi?: boolean;
   note?: string;
+  /** Mark as internal-only — rendered with amber styling and a lock badge */
+  internal?: boolean;
+  /** Send `null` to backend when the value is empty (instead of omitting the field) */
+  nullable?: boolean;
 };
 
 type TableField = {
@@ -381,11 +385,14 @@ function toPayload(formState: Record<string, any>, fields: FormField[]) {
   }
 
   // Plain JSON object (no actual files selected)
-  const payload: Record<string, string | number> = {};
+  const payload: Record<string, string | number | null> = {};
   for (const field of fields) {
     if (field.type === "file") continue; // skip file fields when no file chosen
     const rawValue = formState[field.key]?.trim?.() ?? formState[field.key] ?? "";
-    if (rawValue === "" || rawValue == null) continue;
+    if (rawValue === "" || rawValue == null) {
+      if (field.nullable) payload[field.key] = null;
+      continue;
+    }
     if (field.type === "number") {
       const numberValue = Number(rawValue);
       payload[field.key] = Number.isNaN(numberValue) ? 0 : numberValue;
@@ -407,8 +414,8 @@ function toPayload(formState: Record<string, any>, fields: FormField[]) {
 
 function enrichLocationTranslations(
   endpoint: string,
-  payload: Record<string, string | number>
-): Record<string, string | number> {
+  payload: Record<string, string | number | null>
+): Record<string, string | number | null> {
   const isHotelEndpoint = endpoint.includes("/inventory/admin/hotels/");
   const isFlightEndpoint = endpoint.includes("/inventory/admin/flights/");
   const isExcursionEndpoint = endpoint.includes("/inventory/admin/excursions/");
@@ -718,6 +725,32 @@ export default function InventoryManagementPage({ config }: { config: InventoryP
           ? { ...formState, currency: currencyOptions[0].value }
           : formState;
 
+      // cost_price cross-field validation
+      const costPriceStr = (submitState.cost_price ?? "").trim();
+      if (costPriceStr.length > 0) {
+        const costNum = Number(costPriceStr);
+        if (!Number.isNaN(costNum)) {
+          if (costNum < 0) {
+            setError("Cost price cannot be negative.");
+            return;
+          }
+          const pubKey = config.formFields.some((f) => f.key === "price") ? "price"
+            : config.formFields.some((f) => f.key === "public_price") ? "public_price" : null;
+          if (pubKey) {
+            const pubNum = Number((submitState[pubKey] ?? "").trim());
+            if (!Number.isNaN(pubNum) && pubNum > 0 && costNum >= pubNum) {
+              setError("Cost price must be lower than the public price to ensure a positive margin.");
+              return;
+            }
+          }
+          const agencyNum = Number((submitState.agency_price ?? "").trim());
+          if (!Number.isNaN(agencyNum) && agencyNum > 0 && costNum >= agencyNum) {
+            setError("Cost price must be lower than the agency price to ensure a positive margin.");
+            return;
+          }
+        }
+      }
+
       const rawPayload = toPayload(submitState, config.formFields);
 
       if (rawPayload instanceof FormData) {
@@ -887,6 +920,28 @@ export default function InventoryManagementPage({ config }: { config: InventoryP
       .slice(0, 4);
   }, [exchangeRates, selectedCurrency]);
 
+  // Margin display: computed when cost_price and at least one price field are filled
+  const marginDisplay = useMemo(() => {
+    if (!config.formFields.some((f) => f.key === "cost_price")) return null;
+    const costRaw = (formState.cost_price ?? "").trim();
+    if (!costRaw) return null;
+    const cost = parseFloat(costRaw);
+    if (Number.isNaN(cost)) return null;
+
+    const pubKey = config.formFields.some((f) => f.key === "price") ? "price"
+      : config.formFields.some((f) => f.key === "public_price") ? "public_price" : null;
+
+    const items: { label: string; margin: number }[] = [];
+    if (pubKey) {
+      const pub = parseFloat((formState[pubKey] ?? "").trim());
+      if (!Number.isNaN(pub) && pub > 0) items.push({ label: "Public", margin: pub - cost });
+    }
+    const agency = parseFloat((formState.agency_price ?? "").trim());
+    if (!Number.isNaN(agency) && agency > 0) items.push({ label: "Agency", margin: agency - cost });
+
+    return items.length > 0 ? { items, currency: selectedCurrency } : null;
+  }, [config.formFields, formState, selectedCurrency]);
+
   const getFieldOptions = (field: FormField): SelectOption[] => {
     if (field.options && field.options.length > 0) {
       return field.options;
@@ -987,10 +1042,36 @@ export default function InventoryManagementPage({ config }: { config: InventoryP
             <div style={{ maxHeight: "70vh", overflowY: "auto" }}>
               <form onSubmit={handleSubmit} className="grid gap-3 p-4 sm:grid-cols-2">
 
+                {/* Margin preview — top row */}
+                {marginDisplay ? (
+                  <div className="sm:col-span-2 flex flex-wrap items-center gap-x-5 gap-y-1 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-[11px]">
+                    <span className="font-semibold text-slate-500">Margin Preview</span>
+                    {marginDisplay.items.map(({ label, margin }) => (
+                      <span key={label} className="flex items-center gap-1.5">
+                        <span className="text-slate-400">{label}:</span>
+                        <span className={margin > 0 ? "font-semibold text-emerald-700" : margin < 0 ? "font-semibold text-red-600" : "text-slate-500"}>
+                          {marginDisplay.currency ? `${marginDisplay.currency} ` : ""}{margin.toFixed(2)}
+                        </span>
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
+
                 {config.formFields.map((field) => (
-                  <div key={field.key} className={field.type === "textarea" ? "sm:col-span-2" : ""}>
+                  <div
+                    key={field.key}
+                    className={[
+                      field.type === "textarea" ? "sm:col-span-2" : "",
+                      field.internal ? "rounded-md border border-amber-200 bg-amber-50/50 p-2" : "",
+                    ].filter(Boolean).join(" ")}
+                  >
                     <label htmlFor={field.key} className="mb-1 block text-xs font-medium text-slate-600">
                       {field.label}
+                      {field.internal ? (
+                        <span className="ml-1.5 inline-flex items-center rounded-full bg-amber-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-amber-800">
+                          🔒 Internal
+                        </span>
+                      ) : null}
                     </label>
 
                     {field.type === "textarea" ? (
@@ -1097,7 +1178,9 @@ export default function InventoryManagementPage({ config }: { config: InventoryP
                       />
                     )}
                     {field.note ? (
-                      <p className="mt-1 text-[11px] text-slate-500 italic">{field.note}</p>
+                      <p className={["mt-1 text-[11px] italic", field.internal ? "text-amber-700" : "text-slate-500"].join(" ")}>
+                        {field.note}
+                      </p>
                     ) : null}
                   </div>
                 ))}

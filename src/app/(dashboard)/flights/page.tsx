@@ -26,6 +26,17 @@ const flightsConfig: InventoryPageConfig = {
     { key: "currency", label: "Currency", type: "select", source: "currencies", required: true },
     { key: "price", label: "Public Price", type: "number", step: "0.01", required: true, placeholder: "0.00" },
     { key: "agency_price", label: "Agency Price", type: "number", step: "0.01", required: false, placeholder: "0.00" },
+    {
+      key: "cost_price",
+      label: "Cost Price (Internal)",
+      type: "number",
+      step: "0.01",
+      required: false,
+      placeholder: "0.00",
+      internal: true,
+      nullable: true,
+      note: "Internal supplier cost paid by Jovira. Used for profit margin calculation. Never shown to agencies or clients.",
+    },
   ],
 };
 

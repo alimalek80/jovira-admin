@@ -57,6 +57,17 @@ const excursionsConfig: InventoryPageConfig = {
       placeholder: "0.00",
       note: "Shown to AGENCY and STAFF users. Falls back to Public Price if not set.",
     },
+    {
+      key: "cost_price",
+      label: "Cost Price (Internal)",
+      type: "number",
+      step: "0.01",
+      required: false,
+      placeholder: "0.00",
+      internal: true,
+      nullable: true,
+      note: "Internal supplier cost paid by Jovira. Used for profit margin calculation. Never shown to agencies or clients.",
+    },
   ],
 };
 
