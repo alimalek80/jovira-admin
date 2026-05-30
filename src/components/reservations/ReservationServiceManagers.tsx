@@ -4,13 +4,17 @@ import { forwardRef, useEffect, useImperativeHandle, useMemo, useState } from "r
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import HotelBookingForm from "@/components/reservations/HotelBookingForm";
 import TransferServiceForm from "@/components/reservations/TransferServiceForm";
+import ExcursionServiceForm from "@/components/reservations/ExcursionServiceForm";
 import {
   deleteHotelBooking,
   deleteTransferService,
+  deleteExcursionService,
   listHotelBookings,
   listTransferServices,
+  listExcursionServices,
   type HotelBooking,
   type TransferService,
+  type ExcursionService,
 } from "@/lib/api/reservation-services";
 
 export type ReservationServiceManagerHandle = {
@@ -409,3 +413,188 @@ export const TransferServiceManager = forwardRef<
     </div>
   );
 });
+
+// ─── ExcursionServiceManager ──────────────────────────────────────────────────
+
+function ExcursionViewPanel({ service }: { service: ExcursionService }) {
+  return (
+    <div className="grid gap-2.5 sm:grid-cols-2">
+      <ViewField label="System Date" value={toDateLabel(service.systemDate)} />
+      <ViewField label="Excursion Date" value={toDateLabel(service.excursionDate)} />
+      <ViewField label="Excursion" value={service.excursionName} />
+      <ViewField label="Combo" value={service.isCombo ? "Yes" : "No"} />
+      <ViewField label="Pick Up Point" value={service.pickupPoint} />
+      <ViewField label="Price" value={service.price ? `${service.price} ${service.sellingCurrencyCode}`.trim() : "-"} />
+      <ViewField label="Selling Currency" value={service.sellingCurrencyCode} />
+      <ViewField label="Cost" value={service.cost ? `${service.cost} ${service.costCurrencyCode}`.trim() : "-"} />
+      <ViewField label="Cost Currency" value={service.costCurrencyCode} />
+      <ViewField label="Cross Currency Rate" value={service.crossCurrencyRate} />
+      <ViewField label="Paid" value={service.isPaid ? "Yes" : "No"} />
+      <ViewField label="Confirm Booking #" value={service.confirmBookingNumber} />
+      <ViewField label="Agent Confirmation #" value={service.agentConfirmationNumber} />
+      <div className="sm:col-span-2">
+        <ViewField label="Note" value={service.note} />
+      </div>
+    </div>
+  );
+}
+
+export const ExcursionServiceManager = forwardRef<
+  ReservationServiceManagerHandle,
+  {
+    isAddOpen: boolean;
+    onCloseAdd: () => void;
+  }
+>(function ExcursionServiceManager({ isAddOpen, onCloseAdd }, ref) {
+  const queryClient = useQueryClient();
+  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [isViewOpen, setIsViewOpen] = useState(false);
+  const [isEditOpen, setIsEditOpen] = useState(false);
+  const [toastMessage, setToastMessage] = useState("");
+
+  const query = useQuery({
+    queryKey: ["excursion-services"],
+    queryFn: async () => {
+      const result = await listExcursionServices();
+      return result.results;
+    },
+  });
+
+  const selectedService = useMemo(
+    () => query.data?.find((service) => service.id === selectedId) ?? null,
+    [query.data, selectedId]
+  );
+
+  const deleteMutation = useMutation({
+    mutationFn: async (serviceId: number) => deleteExcursionService(serviceId),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["excursion-services"] });
+      setToastMessage("Excursion service deleted successfully.");
+      setSelectedId(null);
+    },
+  });
+
+  useImperativeHandle(ref, () => ({
+    openEdit: () => {
+      if (!selectedService) {
+        window.alert("Select an excursion row first.");
+        return;
+      }
+      setIsEditOpen(true);
+    },
+    openView: () => {
+      if (!selectedService) {
+        window.alert("Select an excursion row first.");
+        return;
+      }
+      setIsViewOpen(true);
+    },
+    deleteSelected: () => {
+      if (!selectedService) {
+        window.alert("Select an excursion row first.");
+        return;
+      }
+      const confirmed = window.confirm("Delete selected excursion service?");
+      if (!confirmed) return;
+      void deleteMutation.mutateAsync(selectedService.id);
+    },
+  }), [deleteMutation, selectedService]);
+
+  useEffect(() => {
+    if (!toastMessage) return;
+    const timer = window.setTimeout(() => setToastMessage(""), 2400);
+    return () => window.clearTimeout(timer);
+  }, [toastMessage]);
+
+  return (
+    <div className="min-h-0 flex-1 overflow-auto p-4">
+      {toastMessage ? (
+        <div className="mb-3 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-700">
+          {toastMessage}
+        </div>
+      ) : null}
+
+      {query.isLoading ? (
+        <p className="text-xs text-slate-500">Loading excursion services...</p>
+      ) : !query.data || query.data.length === 0 ? (
+        <p className="text-xs text-slate-500">No excursion services added yet.</p>
+      ) : (
+        <table className="min-w-full rounded-md border border-slate-200 text-left text-[11px]">
+          <thead className="sticky top-0 bg-slate-100 text-slate-600">
+            <tr>
+              <th className="border-b border-slate-200 px-2 py-1.5 font-semibold">System Date</th>
+              <th className="border-b border-slate-200 px-2 py-1.5 font-semibold">Excursion Date</th>
+              <th className="border-b border-slate-200 px-2 py-1.5 font-semibold">Excursion</th>
+              <th className="border-b border-slate-200 px-2 py-1.5 font-semibold">Combo</th>
+              <th className="border-b border-slate-200 px-2 py-1.5 font-semibold">Price</th>
+              <th className="border-b border-slate-200 px-2 py-1.5 font-semibold">Selling CCY</th>
+              <th className="border-b border-slate-200 px-2 py-1.5 font-semibold">Cost</th>
+              <th className="border-b border-slate-200 px-2 py-1.5 font-semibold">Cost CCY</th>
+              <th className="border-b border-slate-200 px-2 py-1.5 font-semibold">Paid</th>
+              <th className="border-b border-slate-200 px-2 py-1.5 font-semibold">Confirm #</th>
+            </tr>
+          </thead>
+          <tbody>
+            {query.data.map((service, index) => (
+              <tr
+                key={service.id}
+                onClick={() => setSelectedId(service.id)}
+                className={`cursor-pointer ${
+                  selectedService?.id === service.id
+                    ? "bg-amber-200/80 hover:bg-amber-200"
+                    : index % 2 === 0
+                      ? "bg-white hover:bg-slate-50"
+                      : "bg-slate-50 hover:bg-slate-100"
+                }`}
+              >
+                <td className="border-b border-slate-100 px-2 py-1.5 text-slate-700">{toDateLabel(service.systemDate)}</td>
+                <td className="border-b border-slate-100 px-2 py-1.5 text-slate-700">{toDateLabel(service.excursionDate)}</td>
+                <td className="border-b border-slate-100 px-2 py-1.5 font-medium text-slate-800">{service.excursionName || "-"}</td>
+                <td className="border-b border-slate-100 px-2 py-1.5 text-slate-700">{service.isCombo ? "Yes" : "No"}</td>
+                <td className="border-b border-slate-100 px-2 py-1.5 text-slate-700">{service.price || "-"}</td>
+                <td className="border-b border-slate-100 px-2 py-1.5 text-slate-700">{service.sellingCurrencyCode || "-"}</td>
+                <td className="border-b border-slate-100 px-2 py-1.5 text-slate-700">{service.cost || "-"}</td>
+                <td className="border-b border-slate-100 px-2 py-1.5 text-slate-700">{service.costCurrencyCode || "-"}</td>
+                <td className="border-b border-slate-100 px-2 py-1.5 text-slate-700">{service.isPaid ? "Yes" : "No"}</td>
+                <td className="border-b border-slate-100 px-2 py-1.5 text-slate-700">{service.confirmBookingNumber || "-"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+
+      {isAddOpen ? (
+        <ModalShell title="Add Excursion Service" onClose={onCloseAdd}>
+          <ExcursionServiceForm
+            onCancel={onCloseAdd}
+            onSuccess={() => {
+              onCloseAdd();
+              setToastMessage("Excursion service added successfully.");
+            }}
+          />
+        </ModalShell>
+      ) : null}
+
+      {isViewOpen && selectedService ? (
+        <ModalShell title="View Excursion Service" onClose={() => setIsViewOpen(false)}>
+          <ExcursionViewPanel service={selectedService} />
+        </ModalShell>
+      ) : null}
+
+      {isEditOpen && selectedService ? (
+        <ModalShell title="Edit Excursion Service" onClose={() => setIsEditOpen(false)}>
+          <ExcursionServiceForm
+            key={`edit-excursion-${selectedService.id}`}
+            service={selectedService}
+            onCancel={() => setIsEditOpen(false)}
+            onSuccess={() => {
+              setIsEditOpen(false);
+              setToastMessage("Excursion service updated successfully.");
+            }}
+          />
+        </ModalShell>
+      ) : null}
+    </div>
+  );
+});
+

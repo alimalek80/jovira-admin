@@ -12,6 +12,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   HotelBookingManager,
   TransferServiceManager,
+  ExcursionServiceManager,
   type ReservationServiceManagerHandle,
 } from "../../../components/reservations/ReservationServiceManagers";
 import TouristManager from "@/components/reservations/TouristManager";
@@ -1030,6 +1031,7 @@ function ReservationTabsPanel({
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const hotelManagerRef = useRef<ReservationServiceManagerHandle | null>(null);
   const transferManagerRef = useRef<ReservationServiceManagerHandle | null>(null);
+  const excursionManagerRef = useRef<ReservationServiceManagerHandle | null>(null);
   const actionButtons = [
     { label: "Add", primary: true },
     { label: "Edit" },
@@ -1043,11 +1045,16 @@ function ReservationTabsPanel({
     { label: "Set Confirmation" },
   ];
 
-  const supportsActiveTabAdd = activeTab === "Hotel" || activeTab === "Transfer";
-  const supportsSelectedRowActions = activeTab === "Hotel" || activeTab === "Transfer";
+  const supportsActiveTabAdd = activeTab === "Hotel" || activeTab === "Transfer" || activeTab === "Excursion";
+  const supportsSelectedRowActions = activeTab === "Hotel" || activeTab === "Transfer" || activeTab === "Excursion";
 
   const runSelectedRowAction = (action: "edit" | "view" | "delete") => {
-    const manager = activeTab === "Hotel" ? hotelManagerRef.current : transferManagerRef.current;
+    const manager =
+      activeTab === "Hotel"
+        ? hotelManagerRef.current
+        : activeTab === "Excursion"
+          ? excursionManagerRef.current
+          : transferManagerRef.current;
 
     if (!manager) {
       return;
@@ -1163,6 +1170,12 @@ function ReservationTabsPanel({
           reservationId={reservationId}
           tourPackageId={tourPackageId}
           currencyOptions={currencyOptions}
+          isAddOpen={isAddModalOpen}
+          onCloseAdd={() => setIsAddModalOpen(false)}
+        />
+      ) : activeTab === "Excursion" ? (
+        <ExcursionServiceManager
+          ref={excursionManagerRef}
           isAddOpen={isAddModalOpen}
           onCloseAdd={() => setIsAddModalOpen(false)}
         />

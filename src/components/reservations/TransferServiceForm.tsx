@@ -2,8 +2,10 @@
 
 import { useMemo, useState } from "react";
 import type { AxiosError } from "axios";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
+import axiosInstance from "@/lib/axios";
+import { INVENTORY_ENDPOINTS } from "@/lib/api-endpoints";
 import { useTourists } from "@/hooks/use-tourists";
 import {
   buildTransferServiceInput,
@@ -16,6 +18,7 @@ import { mapBackendValidationErrors, type FieldErrorMap } from "@/lib/forms/back
 const locationTypeOptions = ["AIRPORT", "HOTEL", "CITY", "OTHER"] as const;
 
 const transferServiceSchema = z.object({
+  transfer_catalog: z.string(),
   service_name: z.string().min(1, "Service name is required."),
   service_date: z.string().min(1, "Service date is required."),
   on_arrival: z.boolean(),
@@ -55,6 +58,7 @@ export default function TransferServiceForm({
   const queryClient = useQueryClient();
   const touristsQuery = useTourists("admin", reservationId, { enabled: reservationId > 0 });
   const [values, setValues] = useState<TransferServiceFormValues>({
+    transfer_catalog: service?.transferCatalogId ?? "",
     service_name: service?.serviceName ?? "",
     service_date: service?.serviceDate?.slice(0, 10) ?? "",
     on_arrival: service?.onArrival ?? true,
@@ -71,6 +75,24 @@ export default function TransferServiceForm({
   });
   const [fieldErrors, setFieldErrors] = useState<FieldErrorMap>({});
   const [formError, setFormError] = useState("");
+  const [isLoadingCatalog, setIsLoadingCatalog] = useState(false);
+
+  // Catalog transfer options
+  const catalogQuery = useQuery({
+    queryKey: ["transfer-catalog", "admin"],
+    queryFn: async () => {
+      const res = await axiosInstance.get(INVENTORY_ENDPOINTS.adminTransfers, { params: { page_size: 200 } });
+      const data = res.data as Record<string, unknown>;
+      const rows = Array.isArray(data.results) ? data.results : Array.isArray(res.data) ? res.data : [];
+      return (rows as Record<string, unknown>[]).map((r) => ({
+        id: String(r.id ?? ""),
+        label: `${String(r.from_location ?? "")} → ${String(r.to_location ?? "")}${
+          r.name ? ` (${String(r.name)})` : ""
+        }`,
+      })).filter((o) => o.id.length > 0);
+    },
+  });
+  const catalogOptions = catalogQuery.data ?? [];
 
   const mutation = useMutation({
     mutationFn: async (payload: TransferServiceFormValues) => {
@@ -110,6 +132,34 @@ export default function TransferServiceForm({
       return next;
     });
   };
+
+  async function handleCatalogChange(catalogId: string) {
+    update("transfer_catalog", catalogId);
+    if (!catalogId) return;
+
+    try {
+      setIsLoadingCatalog(true);
+      const res = await axiosInstance.get(`${INVENTORY_ENDPOINTS.adminTransfers}${catalogId}/`);
+      const d = res.data as Record<string, unknown>;
+
+      const autoPrice = String(d.agency_price ?? d.public_price ?? "");
+      const autoCurrency = d.currency != null ? String(d.currency) : "";
+
+      setValues((prev) => ({
+        ...prev,
+        transfer_catalog: catalogId,
+        service_name: prev.service_name || String(d.name ?? ""),
+        from_location_name: prev.from_location_name || String(d.from_location ?? ""),
+        to_location_name: prev.to_location_name || String(d.to_location ?? ""),
+        price: prev.price || autoPrice,
+        currency: prev.currency || autoCurrency,
+      }));
+    } catch {
+      // best-effort prefill
+    } finally {
+      setIsLoadingCatalog(false);
+    }
+  }
 
   const togglePassenger = (touristId: number) => {
     setValues((previous) => ({
@@ -152,6 +202,37 @@ export default function TransferServiceForm({
 
   return (
     <form onSubmit={handleSubmit} className="grid gap-3 sm:grid-cols-2">
+      {/* Catalog Transfer select — optional pre-fill */}
+      <div className="sm:col-span-2">
+        <label htmlFor="transfer_catalog" className="mb-1 block text-[11px] font-medium text-slate-600">
+          Transfer (Catalog)
+        </label>
+        <div className="relative">
+          <select
+            id="transfer_catalog"
+            value={values.transfer_catalog}
+            onChange={(e) => { void handleCatalogChange(e.target.value); }}
+            disabled={catalogQuery.isLoading || isLoadingCatalog}
+            className={inputClassName}
+          >
+            <option value="">
+              {catalogQuery.isLoading ? "Loading catalog…" : "None (manual entry)"}
+            </option>
+            {catalogOptions.map((o) => (
+              <option key={o.id} value={o.id}>{o.label}</option>
+            ))}
+          </select>
+          {isLoadingCatalog ? (
+            <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-slate-500 pointer-events-none">
+              Loading…
+            </span>
+          ) : null}
+        </div>
+        <p className="mt-1 text-[11px] text-slate-500 italic">
+          Selecting a catalog route pre-fills the fields below. You can still override any value.
+        </p>
+      </div>
+
       <div className="sm:col-span-2">
         <label htmlFor="service_name" className="mb-1 block text-[11px] font-medium text-slate-600">Service Name</label>
         <input id="service_name" value={values.service_name} onChange={(event) => update("service_name", event.target.value)} className={inputClassName} />

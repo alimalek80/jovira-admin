@@ -20,9 +20,12 @@ export const ACCOUNTS_ENDPOINTS = {
 
 export const INVENTORY_ENDPOINTS = {
   adminHotels: `${API_V1}/inventory/admin/hotels/`,
+  adminHotelImages: `${API_V1}/inventory/admin/hotel-images/`,
   adminFlights: `${API_V1}/inventory/admin/flights/`,
   adminTourPackages: `${API_V1}/inventory/admin/tour-packages/`,
   adminExcursions: `${API_V1}/inventory/admin/excursions/`,
+  adminTransferProviders: `${API_V1}/inventory/admin/transfer-providers/`,
+  adminTransfers: `${API_V1}/inventory/admin/transfers/`,
 };
 
 export const AGENCIES_ENDPOINTS = {
@@ -36,6 +39,7 @@ export const RESERVATIONS_ENDPOINTS = {
   adminFlightTickets: `${API_V1}/reservations/admin/flight-tickets/`,
   adminExcursionBookings: `${API_V1}/reservations/admin/excursion-bookings/`,
   adminTransferServices: `${API_V1}/reservations/admin/transfer-services/`,
+  adminExcursionServices: `${API_V1}/reservations/admin/excursion-services/`,
 };
 
 export const FINANCE_ENDPOINTS = {

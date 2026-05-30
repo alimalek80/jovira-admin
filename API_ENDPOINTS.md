@@ -90,19 +90,45 @@ Admin approval:
 
 ## Inventory
 
+
 ### Admin (IsAdminUser)
 - `GET, POST /api/v1/inventory/admin/hotels/`
 - `GET, PUT, PATCH, DELETE /api/v1/inventory/admin/hotels/{id}/`
+  - **Hotel fields:**
+    - `name`, `city`, `stars`, `currency`
+    - `price` (public price), `agency_price` (optional; agency/staff users see this instead)
+    - `description` (multi-language)
+    - `main_image` (image upload)
+    - `features` (list of feature IDs)
+    - `gallery_images` (list of images, each with `image`, `alt_text`, `order`)
+- `GET, POST /api/v1/inventory/admin/hotel-features/`
+- `GET, PUT, PATCH, DELETE /api/v1/inventory/admin/hotel-features/{id}/`
+- `GET, POST /api/v1/inventory/admin/hotel-images/`
+- `GET, PUT, PATCH, DELETE /api/v1/inventory/admin/hotel-images/{id}/`
+  - Accepts `multipart/form-data` for image uploads.
+  - Filter by hotel: `GET /api/v1/inventory/admin/hotel-images/?hotel=<id>`
+  - **Payload fields:** `hotel` (integer FK, required), `image` (file, required), `alt_text` (string, optional), `order` (integer, optional)
 - `GET, POST /api/v1/inventory/admin/flights/`
 - `GET, PUT, PATCH, DELETE /api/v1/inventory/admin/flights/{id}/`
+  - **Flight fields:** `flight_number`, `airline`, `origin`, `destination`, `departure_time`, `arrival_time`, `currency`, `price`, `agency_price`
 - `GET, POST /api/v1/inventory/admin/tour-packages/`
 - `GET, PUT, PATCH, DELETE /api/v1/inventory/admin/tour-packages/{id}/`
 - `GET, POST /api/v1/inventory/admin/excursions/`
 - `GET, PUT, PATCH, DELETE /api/v1/inventory/admin/excursions/{id}/`
+- `GET, POST /api/v1/inventory/admin/transfer-providers/`
+- `GET, PUT, PATCH, DELETE /api/v1/inventory/admin/transfer-providers/{id}/`
+- `GET, POST /api/v1/inventory/admin/transfers/`
+- `GET, PUT, PATCH, DELETE /api/v1/inventory/admin/transfers/{id}/`
 
 Tour package admin note:
 - `/inventory/admin/tour-packages/` is accessible by admin and `STAFF` role users.
 - Tour package admin payload includes both `public_price` and `agency_price`.
+
+Agency pricing behavior (hotels, flights, tour packages):
+- Admin endpoints always return both `price`/`public_price` and `agency_price`.
+- Client endpoints return a single `price` field resolved by the authenticated user's role:
+  - `NORMAL` users and unauthenticated users → public price.
+  - `AGENCY`, `STAFF`, and Django admin/staff users → `agency_price` (if set, otherwise falls back to public price).
 
 ### Client (Public read-only)
 - `GET /api/v1/inventory/client/hotels/`
@@ -113,10 +139,19 @@ Tour package admin note:
 - `GET /api/v1/inventory/client/tour-packages/{id}/`
 - `GET /api/v1/inventory/client/excursions/`
 - `GET /api/v1/inventory/client/excursions/{id}/`
+- `GET /api/v1/inventory/client/transfers/`
+- `GET /api/v1/inventory/client/transfers/{id}/`
+
+Transfer notes:
+- `inventory.TransferProvider` — companies or individual drivers that provide transfers. Admin-managed.
+- `inventory.Transfer` — catalog route item with `public_price`, `agency_price`, `currency`, linked to a provider.
+- `reservations.TransferService` — the actual booking record. Optionally references a catalog `Transfer` FK; when set, prices/currency are auto-populated from the catalog but can be overridden.
+- Client `transfers` endpoint requires `IsAuthenticated` (B2B/agency use).
 
 Tour package client pricing behavior:
-- Public and `NORMAL` users receive `public_price` in `price`.
+- Public and `NORMAL` users receive public price in `price`.
 - `AGENCY`, `STAFF`, and Django admin/staff users receive `agency_price` in `price`.
+- Applies to hotels, flights, and tour packages.
 
 ## Reservations
 
@@ -133,6 +168,8 @@ Tour package client pricing behavior:
 - `GET, PUT, PATCH, DELETE /api/v1/reservations/admin/excursion-bookings/{id}/`
 - `GET, POST /api/v1/reservations/admin/transfer-services/`
 - `GET, PUT, PATCH, DELETE /api/v1/reservations/admin/transfer-services/{id}/`
+- `GET, POST /api/v1/reservations/admin/excursion-services/`
+- `GET, PUT, PATCH, DELETE /api/v1/reservations/admin/excursion-services/{id}/`
 
 ### Client (IsAuthenticated)
 - `GET, POST /api/v1/reservations/client/reservations/`
@@ -147,11 +184,20 @@ Tour package client pricing behavior:
 - `GET, PUT, PATCH, DELETE /api/v1/reservations/client/excursion-bookings/{id}/`
 - `GET, POST /api/v1/reservations/client/transfer-services/`
 - `GET, PUT, PATCH, DELETE /api/v1/reservations/client/transfer-services/{id}/`
+- `GET, POST /api/v1/reservations/client/excursion-services/`
+- `GET, PUT, PATCH, DELETE /api/v1/reservations/client/excursion-services/{id}/`
+
+Excursion Service notes:
+- `ExcursionService` is a **standalone excursion booking** (not tied to a `Reservation`). It is a B2B/agency operational record for tracking excursion sales with full financial detail.
+- **Access:** `client/` endpoints require `IsAuthenticated`. This section is intended for **agency and staff users only** — normal/public users should not have UI access to it.
+- Fields: `excursion_date`, `excursion` (FK), `is_combo`, `pickup_point`, `price`, `selling_currency` (FK), `cost`, `cost_currency` (FK), `cross_currency_rate`, `is_paid`, `confirm_booking_number`, `agent_confirmation_number`, `note`.
+- `system_date` is auto-set (read-only).
 
 Reservation and transfer notes:
 - `reservation.tour_package` is optional (`null` allowed).
 - `transfer_service.tour_package` is optional (`null` allowed).
 - A reservation can include only hotel booking, only flight ticket, only transfer, or any combination.
+- `transfer_service.agency_price` is optional; admin can set a separate agency price for transfers.
 
 ## Finance
 
@@ -185,6 +231,7 @@ Reservation and transfer notes:
 
 Hero payload fields:
 - `badge_text`
+- `logo` (optional upload / returned as media URL)
 - `image` (optional upload / returned as media URL)
 - `headline`
 - `description`
@@ -192,7 +239,7 @@ Hero payload fields:
 - `search_button_text`
 - `updated_at` (read-only)
 
-Admin hero update accepts `application/json` for text fields and `multipart/form-data` for image uploads.
+Admin hero update accepts `application/json` for text fields and `multipart/form-data` for logo/image uploads.
 
 ## Next.js Example (copy-ready)
 
@@ -229,10 +276,13 @@ export const INVENTORY_ENDPOINTS = {
   adminFlights: `${API_V1}/inventory/admin/flights/`,
   adminTourPackages: `${API_V1}/inventory/admin/tour-packages/`,
   adminExcursions: `${API_V1}/inventory/admin/excursions/`,
+  adminTransferProviders: `${API_V1}/inventory/admin/transfer-providers/`,
+  adminTransfers: `${API_V1}/inventory/admin/transfers/`,
   clientHotels: `${API_V1}/inventory/client/hotels/`,
   clientFlights: `${API_V1}/inventory/client/flights/`,
   clientTourPackages: `${API_V1}/inventory/client/tour-packages/`,
   clientExcursions: `${API_V1}/inventory/client/excursions/`,
+  clientTransfers: `${API_V1}/inventory/client/transfers/`,
 };
 
 export const RESERVATIONS_ENDPOINTS = {
@@ -248,6 +298,8 @@ export const RESERVATIONS_ENDPOINTS = {
   clientExcursionBookings: `${API_V1}/reservations/client/excursion-bookings/`,
   adminTransferServices: `${API_V1}/reservations/admin/transfer-services/`,
   clientTransferServices: `${API_V1}/reservations/client/transfer-services/`,
+  adminExcursionServices: `${API_V1}/reservations/admin/excursion-services/`,
+  clientExcursionServices: `${API_V1}/reservations/client/excursion-services/`,
 };
 
 export const FINANCE_ENDPOINTS = {

@@ -13,6 +13,10 @@ const navigationItems = [
   { href: "/reservations", label: "Reservations" },
   { href: "/flights", label: "Flights" },
   { href: "/tour-packages", label: "Tour Packages" },
+  { href: "/excursions", label: "Excursions" },
+  { href: "/excursion-services", label: "Excursion Services" },
+  { href: "/transfer-providers", label: "Transfer Providers" },
+  { href: "/transfers", label: "Transfers" },
 ];
 
 export default async function DashboardLayout({

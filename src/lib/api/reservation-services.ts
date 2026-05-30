@@ -29,6 +29,7 @@ export type TransferService = {
   id: number;
   reservation: number;
   tourPackageId: string;
+  transferCatalogId: string;
   serviceName: string;
   serviceDate: string | null;
   onArrival: boolean;
@@ -47,6 +48,7 @@ export type TransferService = {
 export type TransferServiceInput = {
   reservation: number;
   tour_package?: number | null;
+  transfer?: number | null;
   service_name: string;
   service_date: string;
   on_arrival: boolean;
@@ -68,6 +70,7 @@ type TransferServiceInputBuilderArgs = {
   reservationId: number;
   tourPackageId?: string;
   values: {
+    transfer_catalog?: string;
     service_name: string;
     service_date: string;
     on_arrival: boolean;
@@ -89,9 +92,15 @@ export function buildTransferServiceInput({ reservationId, tourPackageId, values
     ? Number(tourPackageId)
     : null;
 
+  const parsedTransfer =
+    typeof values.transfer_catalog === "string" && values.transfer_catalog.trim().length > 0
+      ? Number(values.transfer_catalog)
+      : null;
+
   return {
     reservation: reservationId,
     tour_package: Number.isFinite(parsedTourPackage) ? parsedTourPackage : null,
+    transfer: Number.isFinite(parsedTransfer) ? parsedTransfer : null,
     service_name: values.service_name,
     service_date: values.service_date,
     on_arrival: values.on_arrival,
@@ -272,6 +281,7 @@ function normalizeTransferService(row: unknown, reservationId?: number): Transfe
     id,
     reservation: resolvedReservation,
     tourPackageId: String(getId(value.tour_package) ?? ""),
+    transferCatalogId: String(getId(value.transfer) ?? ""),
     serviceName: String(value.service_name ?? ""),
     serviceDate: typeof value.service_date === "string" ? value.service_date : null,
     onArrival: Boolean(value.on_arrival),
@@ -458,4 +468,152 @@ export async function updateTransferService(
 
 export async function deleteTransferService(scope: ApiScope, serviceId: number): Promise<void> {
   await axiosInstance.delete(`${resolveTransferServicesEndpoint(scope)}${serviceId}/`);
+}
+
+// ─── ExcursionService (standalone B2B, not tied to a reservation) ─────────────
+
+export type ExcursionService = {
+  id: number;
+  systemDate: string | null;
+  excursionDate: string | null;
+  isPaid: boolean;
+  excursionId: string;
+  excursionName: string;
+  isCombo: boolean;
+  pickupPoint: string;
+  price: string;
+  sellingCurrencyId: string;
+  sellingCurrencyCode: string;
+  cost: string;
+  costCurrencyId: string;
+  costCurrencyCode: string;
+  crossCurrencyRate: string;
+  confirmBookingNumber: string;
+  agentConfirmationNumber: string;
+  note: string;
+};
+
+export type ExcursionServiceInput = {
+  excursion_date: string;
+  is_paid: boolean;
+  excursion: number;
+  is_combo: boolean;
+  pickup_point?: string;
+  price?: string;
+  selling_currency?: number | null;
+  cost: string;
+  cost_currency: number;
+  cross_currency_rate?: string;
+  confirm_booking_number?: string;
+  agent_confirmation_number?: string;
+  note?: string;
+};
+
+export type ExcursionServiceListParams = {
+  excursion_date_after?: string;
+  excursion_date_before?: string;
+  is_paid?: boolean;
+  is_combo?: boolean;
+  page?: number;
+  page_size?: number;
+};
+
+export type PaginatedExcursionServices = {
+  count: number;
+  next: string | null;
+  previous: string | null;
+  results: ExcursionService[];
+};
+
+function normalizeExcursionService(row: unknown): ExcursionService | null {
+  if (!row || typeof row !== "object") return null;
+  const value = row as Row;
+  const id = getId(value.id);
+  if (!id) return null;
+
+  const excursion = relationLabel(value.excursion, "");
+  const costCurrency = relationLabel(value.cost_currency, "");
+  const sellingCurrency = relationLabel(value.selling_currency, "");
+
+  const costCurrencyCode =
+    (value.cost_currency && typeof value.cost_currency === "object"
+      ? (value.cost_currency as Row).code ?? (value.cost_currency as Row).iso_code
+      : null) ??
+    costCurrency.label;
+
+  const sellingCurrencyCode =
+    (value.selling_currency && typeof value.selling_currency === "object"
+      ? (value.selling_currency as Row).code ?? (value.selling_currency as Row).iso_code
+      : null) ??
+    sellingCurrency.label;
+
+  return {
+    id,
+    systemDate: typeof value.system_date === "string" ? value.system_date : null,
+    excursionDate: typeof value.excursion_date === "string" ? value.excursion_date : null,
+    isPaid: toBoolean(value.is_paid),
+    excursionId: excursion.id,
+    excursionName: excursion.label,
+    isCombo: toBoolean(value.is_combo),
+    pickupPoint: String(value.pickup_point ?? ""),
+    price: String(value.price ?? "0.00"),
+    sellingCurrencyId: sellingCurrency.id,
+    sellingCurrencyCode: String(sellingCurrencyCode ?? ""),
+    cost: String(value.cost ?? "0.00"),
+    costCurrencyId: costCurrency.id,
+    costCurrencyCode: String(costCurrencyCode ?? ""),
+    crossCurrencyRate: String(value.cross_currency_rate ?? "1.0000000000"),
+    confirmBookingNumber: String(value.confirm_booking_number ?? ""),
+    agentConfirmationNumber: String(value.agent_confirmation_number ?? ""),
+    note: String(value.note ?? ""),
+  };
+}
+
+export async function listExcursionServices(params?: ExcursionServiceListParams): Promise<PaginatedExcursionServices> {
+  const response = await axiosInstance.get(RESERVATIONS_ENDPOINTS.adminExcursionServices, { params });
+  const data = response.data as Record<string, unknown>;
+
+  if (data && typeof data === "object" && Array.isArray(data.results)) {
+    return {
+      count: typeof data.count === "number" ? data.count : 0,
+      next: typeof data.next === "string" ? data.next : null,
+      previous: typeof data.previous === "string" ? data.previous : null,
+      results: (data.results as unknown[])
+        .map(normalizeExcursionService)
+        .filter((row): row is ExcursionService => row !== null),
+    };
+  }
+
+  const rows = Array.isArray(response.data) ? response.data : [];
+  return {
+    count: rows.length,
+    next: null,
+    previous: null,
+    results: rows.map(normalizeExcursionService).filter((row): row is ExcursionService => row !== null),
+  };
+}
+
+export async function getExcursionService(id: number): Promise<ExcursionService> {
+  const response = await axiosInstance.get(`${RESERVATIONS_ENDPOINTS.adminExcursionServices}${id}/`);
+  const normalized = normalizeExcursionService(response.data);
+  if (!normalized) throw new Error("Unable to normalize excursion service response.");
+  return normalized;
+}
+
+export async function createExcursionService(payload: ExcursionServiceInput): Promise<ExcursionService> {
+  const response = await axiosInstance.post(RESERVATIONS_ENDPOINTS.adminExcursionServices, payload);
+  const normalized = normalizeExcursionService(response.data);
+  if (!normalized) throw new Error("Unable to normalize excursion service response.");
+  return normalized;
+}
+
+export async function updateExcursionService(id: number, payload: Partial<ExcursionServiceInput>): Promise<ExcursionService> {
+  const response = await axiosInstance.patch(`${RESERVATIONS_ENDPOINTS.adminExcursionServices}${id}/`, payload);
+  const normalized = normalizeExcursionService(response.data);
+  if (!normalized) throw new Error("Unable to normalize excursion service response.");
+  return normalized;
+}
+
+export async function deleteExcursionService(id: number): Promise<void> {
+  await axiosInstance.delete(`${RESERVATIONS_ENDPOINTS.adminExcursionServices}${id}/`);
 }
