@@ -1,32 +1,54 @@
 import axiosInstance from "@/lib/axios";
 import { API_V1, RESERVATIONS_ENDPOINTS } from "@/lib/api-endpoints";
 import type { ApiScope } from "@/lib/api/tourists";
-import type { AxiosError } from "axios";
+
+export type HotelBookingStatus = "PENDING" | "CONFIRMED" | "CANCELLED";
 
 export type HotelBooking = {
   id: number;
   reservation: number;
-  hotelId: string;
-  hotelName: string;
+  hotelRoomId: number;
+  roomLabel: string;
   checkInDate: string | null;
   checkOutDate: string | null;
-  paid: boolean;
-  isPaidCancelation: boolean;
-  price?: string;
-  currencyId?: string;
+  quantity: number;
+  status: HotelBookingStatus;
+  isPaid: boolean;
+  // Financials
+  sellingCurrencyId: string | null;
+  price: string | null;
+  agencyPrice: string | null;
+  costCurrencyId: string | null;
+  cost: string | null;
+  crossCurrencyRate: string;
+  // Tracking
+  confirmBookingNumber: string;
+  agentConfirmationNumber: string;
+  hotelCancellationNumber: string;
+  // Notes
+  internalNote: string;
+  remarksForHotel: string;
 };
 
 export type HotelBookingInput = {
   reservation: number;
-  hotel: number;
+  hotel_room: number;
   check_in_date: string;
   check_out_date: string;
-  paid: boolean;
-  is_paid?: boolean;
-  is_paid_cancelation?: boolean;
-  is_paid_cancellation?: boolean;
-  price?: string;
-  currency?: number | null;
+  quantity: number;
+  status?: HotelBookingStatus;
+  is_paid: boolean;
+  selling_currency?: number | null;
+  price?: string | null;
+  agency_price?: string | null;
+  cost_currency?: number | null;
+  cost?: string | null;
+  cross_currency_rate?: string;
+  confirm_booking_number?: string;
+  agent_confirmation_number?: string;
+  hotel_cancellation_number?: string;
+  internal_note?: string;
+  remarks_for_hotel?: string;
 };
 
 export type TransferService = {
@@ -243,13 +265,28 @@ function normalizeHotelBooking(row: unknown, reservationId?: number): HotelBooki
     return null;
   }
 
-  const hotel = relationLabel(value.hotel, "-");
+  const hotelRoomRaw = value.hotel_room;
+  const hotelRoomId = getId(hotelRoomRaw) ?? 0;
+
+  let roomLabel = String(hotelRoomId);
+  if (hotelRoomRaw && typeof hotelRoomRaw === "object") {
+    const room = hotelRoomRaw as Row;
+    const roomType = String(room.room_type ?? "");
+    const boardType = String(room.board_type ?? "");
+    const hotelRaw = room.hotel;
+    const hotelName =
+      typeof hotelRaw === "object" && hotelRaw !== null
+        ? String((hotelRaw as Row).name ?? (hotelRaw as Row).name_en ?? "")
+        : "";
+    const typePart = [roomType, boardType].filter(Boolean).join("/");
+    roomLabel = [hotelName, typePart].filter(Boolean).join(" — ") || String(hotelRoomId);
+  }
 
   return {
     id,
     reservation: resolvedReservation,
-    hotelId: hotel.id,
-    hotelName: hotel.label,
+    hotelRoomId,
+    roomLabel,
     checkInDate:
       typeof value.check_in_date === "string"
         ? value.check_in_date
@@ -262,16 +299,20 @@ function normalizeHotelBooking(row: unknown, reservationId?: number): HotelBooki
         : typeof value.checkout_date === "string"
           ? value.checkout_date
           : null,
-    paid: toBoolean(value.paid ?? value.is_paid),
-    isPaidCancelation: toBoolean(
-      value.is_paid_cancelation ?? value.is_paid_cancellation ?? value.paid_cancelation ?? value.paid_cancellation
-    ),
-    price: typeof value.price === "string" ? value.price : typeof value.price === "number" ? String(value.price) : undefined,
-    currencyId: value.currency != null ? String(
-      typeof value.currency === "object" && value.currency !== null
-        ? (value.currency as Record<string, unknown>).id ?? ""
-        : value.currency
-    ) : undefined,
+    quantity: typeof value.quantity === "number" ? value.quantity : Number(value.quantity ?? 1),
+    status: (String(value.status ?? "PENDING")) as HotelBookingStatus,
+    isPaid: toBoolean(value.is_paid),
+    sellingCurrencyId: value.selling_currency != null ? String(getId(value.selling_currency) ?? value.selling_currency) : null,
+    price: value.price != null ? String(value.price) : null,
+    agencyPrice: value.agency_price != null ? String(value.agency_price) : null,
+    costCurrencyId: value.cost_currency != null ? String(getId(value.cost_currency) ?? value.cost_currency) : null,
+    cost: value.cost != null ? String(value.cost) : null,
+    crossCurrencyRate: String(value.cross_currency_rate ?? "1.0000000000"),
+    confirmBookingNumber: String(value.confirm_booking_number ?? ""),
+    agentConfirmationNumber: String(value.agent_confirmation_number ?? ""),
+    hotelCancellationNumber: String(value.hotel_cancellation_number ?? ""),
+    internalNote: String(value.internal_note ?? ""),
+    remarksForHotel: String(value.remarks_for_hotel ?? ""),
   };
 }
 
@@ -363,37 +404,7 @@ export async function listHotelBookings(scope: ApiScope, reservationId: number):
 }
 
 export async function createHotelBooking(scope: ApiScope, payload: HotelBookingInput): Promise<HotelBooking> {
-  const payloadWithAliases = {
-    ...payload,
-    is_paid: payload.paid,
-    is_paid_cancelation: payload.is_paid_cancelation ?? payload.is_paid_cancellation ?? false,
-    is_paid_cancellation: payload.is_paid_cancelation ?? payload.is_paid_cancellation ?? false,
-  };
-
-  let response;
-
-  try {
-    response = await axiosInstance.post(resolveHotelBookingsEndpoint(scope), payloadWithAliases);
-  } catch (error) {
-    const fallbackPayload: HotelBookingInput & {
-      is_paid: boolean;
-      is_paid_cancellation: boolean;
-      is_paid_cancelation?: boolean;
-    } = {
-      ...payloadWithAliases,
-      is_paid_cancellation: payload.is_paid_cancelation ?? payload.is_paid_cancellation ?? false,
-    };
-    delete fallbackPayload.is_paid_cancelation;
-
-    const axiosError = error as AxiosError;
-    const shouldRetry = typeof axiosError?.response?.status === "number" && axiosError.response.status >= 400;
-    if (!shouldRetry) {
-      throw error;
-    }
-
-    response = await axiosInstance.post(resolveHotelBookingsEndpoint(scope), fallbackPayload);
-  }
-
+  const response = await axiosInstance.post(resolveHotelBookingsEndpoint(scope), payload);
   const normalized = normalizeHotelBooking(response.data, payload.reservation);
   if (!normalized) {
     throw new Error("Unable to normalize hotel booking response.");
@@ -406,33 +417,7 @@ export async function updateHotelBooking(
   bookingId: number,
   payload: Partial<HotelBookingInput> & { reservation: number }
 ): Promise<HotelBooking> {
-  const payloadWithAliases = {
-    ...payload,
-    is_paid: typeof payload.paid === "boolean" ? payload.paid : payload.is_paid,
-    is_paid_cancelation: payload.is_paid_cancelation ?? payload.is_paid_cancellation,
-    is_paid_cancellation: payload.is_paid_cancelation ?? payload.is_paid_cancellation,
-  };
-
-  let response;
-
-  try {
-    response = await axiosInstance.patch(`${resolveHotelBookingsEndpoint(scope)}${bookingId}/`, payloadWithAliases);
-  } catch (error) {
-    const fallbackPayload = {
-      ...payloadWithAliases,
-      is_paid_cancellation: payload.is_paid_cancelation ?? payload.is_paid_cancellation ?? false,
-    };
-    delete fallbackPayload.is_paid_cancelation;
-
-    const axiosError = error as AxiosError;
-    const shouldRetry = typeof axiosError?.response?.status === "number" && axiosError.response.status >= 400;
-    if (!shouldRetry) {
-      throw error;
-    }
-
-    response = await axiosInstance.patch(`${resolveHotelBookingsEndpoint(scope)}${bookingId}/`, fallbackPayload);
-  }
-
+  const response = await axiosInstance.patch(`${resolveHotelBookingsEndpoint(scope)}${bookingId}/`, payload);
   const normalized = normalizeHotelBooking(response.data, payload.reservation);
   if (!normalized) {
     throw new Error("Unable to normalize hotel booking response.");
@@ -442,6 +427,16 @@ export async function updateHotelBooking(
 
 export async function deleteHotelBooking(scope: ApiScope, bookingId: number): Promise<void> {
   await axiosInstance.delete(`${resolveHotelBookingsEndpoint(scope)}${bookingId}/`);
+}
+
+export async function cancelHotelBooking(scope: ApiScope, bookingId: number): Promise<HotelBooking> {
+  const response = await axiosInstance.patch(
+    `${resolveHotelBookingsEndpoint(scope)}${bookingId}/`,
+    { status: "CANCELLED" }
+  );
+  const normalized = normalizeHotelBooking(response.data);
+  if (!normalized) throw new Error("Unable to normalize hotel booking response.");
+  return normalized;
 }
 
 export async function listTransferServices(scope: ApiScope, reservationId: number): Promise<TransferService[]> {

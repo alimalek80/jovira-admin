@@ -7,6 +7,7 @@ import {
   CalendarCheck,
   Building2,
   BedDouble,
+  DoorOpen,
   Plane,
   Map,
   Mountain,
@@ -46,6 +47,7 @@ const navigationGroups: NavigationGroup[] = [
     label: "Inventory",
     items: [
       { href: "/hotels", label: "Hotels", icon: BedDouble },
+      { href: "/hotel-rooms", label: "Hotel Rooms", icon: DoorOpen },
       { href: "/flights", label: "Flights", icon: Plane },
       { href: "/tour-packages", label: "Tour Packages", icon: Map },
       { href: "/excursions", label: "Excursions", icon: Mountain },

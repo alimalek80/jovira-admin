@@ -20,12 +20,17 @@ export const ACCOUNTS_ENDPOINTS = {
 
 export const INVENTORY_ENDPOINTS = {
   adminHotels: `${API_V1}/inventory/admin/hotels/`,
+  adminHotelRooms: `${API_V1}/inventory/admin/hotel-rooms/`,
+  adminHotelRoomAvailability: (id: number, checkIn: string, checkOut: string) =>
+    `${API_V1}/inventory/admin/hotel-rooms/${id}/availability/?check_in=${checkIn}&check_out=${checkOut}`,
   adminHotelImages: `${API_V1}/inventory/admin/hotel-images/`,
   adminFlights: `${API_V1}/inventory/admin/flights/`,
   adminTourPackages: `${API_V1}/inventory/admin/tour-packages/`,
   adminExcursions: `${API_V1}/inventory/admin/excursions/`,
   adminTransferProviders: `${API_V1}/inventory/admin/transfer-providers/`,
   adminTransfers: `${API_V1}/inventory/admin/transfers/`,
+  clientHotels: `${API_V1}/inventory/client/hotels/`,
+  clientHotelRooms: `${API_V1}/inventory/client/hotel-rooms/`,
 };
 
 export const AGENCIES_ENDPOINTS = {

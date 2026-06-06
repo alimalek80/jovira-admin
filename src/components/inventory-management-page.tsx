@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   createColumnHelper,
@@ -48,12 +49,18 @@ type TableField = {
   label: string;
 };
 
+type RowAction = {
+  label: string;
+  href: (item: InventoryItem) => string;
+};
+
 export type InventoryPageConfig = {
   title: string;
   description: string;
   endpoint: string;
   tableFields: TableField[];
   formFields: FormField[];
+  rowActions?: RowAction[];
 };
 
 const columnHelper = createColumnHelper<InventoryItem>();
@@ -893,6 +900,15 @@ export default function InventoryManagementPage({ config }: { config: InventoryP
             >
               Delete
             </button>
+            {config.rowActions?.map((action) => (
+              <Link
+                key={action.label}
+                href={action.href(info.row.original)}
+                className="rounded-md border border-[#0f2347] bg-[#0f2347] px-2 py-1 text-[11px] font-semibold text-white hover:bg-[#0b1b38]"
+              >
+                {action.label}
+              </Link>
+            ))}
           </div>
         ),
       }),

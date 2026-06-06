@@ -6,6 +6,7 @@ import HotelBookingForm from "@/components/reservations/HotelBookingForm";
 import TransferServiceForm from "@/components/reservations/TransferServiceForm";
 import ExcursionServiceForm from "@/components/reservations/ExcursionServiceForm";
 import {
+  cancelHotelBooking,
   deleteHotelBooking,
   deleteTransferService,
   deleteExcursionService,
@@ -69,14 +70,35 @@ function ViewField({ label, value }: { label: string; value: string }) {
   );
 }
 
-function HotelViewPanel({ booking }: { booking: HotelBooking }) {
+function HotelViewPanel({ booking, currencyLabelById }: { booking: HotelBooking; currencyLabelById: Record<string, string> }) {
+  const selCur = booking.sellingCurrencyId ? (currencyLabelById[booking.sellingCurrencyId] ?? booking.sellingCurrencyId) : "";
+  const costCur = booking.costCurrencyId ? (currencyLabelById[booking.costCurrencyId] ?? booking.costCurrencyId) : "";
+  const statusColors: Record<string, string> = {
+    PENDING: "bg-amber-100 text-amber-800",
+    CONFIRMED: "bg-emerald-100 text-emerald-800",
+    CANCELLED: "bg-slate-100 text-slate-500",
+  };
   return (
     <div className="grid gap-2.5 sm:grid-cols-2">
-      <ViewField label="Hotel" value={booking.hotelName} />
+      <div className="rounded-md border border-slate-200 bg-slate-50 p-2.5">
+        <p className="text-[11px] uppercase tracking-wide text-slate-500">Status</p>
+        <span className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold ${statusColors[booking.status] ?? "bg-slate-100 text-slate-500"}`}>
+          {booking.status}
+        </span>
+      </div>
+      <ViewField label="Room" value={booking.roomLabel} />
+      <ViewField label="Quantity" value={String(booking.quantity)} />
       <ViewField label="Check In" value={toDateLabel(booking.checkInDate)} />
       <ViewField label="Check Out" value={toDateLabel(booking.checkOutDate)} />
-      <ViewField label="Paid" value={booking.paid ? "Yes" : "No"} />
-      <ViewField label="Paid Cancelation" value={booking.isPaidCancelation ? "Yes" : "No"} />
+      <ViewField label="Paid" value={booking.isPaid ? "Yes" : "No"} />
+      <ViewField label="Price" value={booking.price ? `${booking.price} ${selCur}`.trim() : "-"} />
+      <ViewField label="Agency Price" value={booking.agencyPrice ?? "-"} />
+      <ViewField label="Cost" value={booking.cost ? `${booking.cost} ${costCur}`.trim() : "-"} />
+      <ViewField label="Confirm #" value={booking.confirmBookingNumber || "-"} />
+      <ViewField label="Agent Confirm #" value={booking.agentConfirmationNumber || "-"} />
+      <ViewField label="Cancellation #" value={booking.hotelCancellationNumber || "-"} />
+      <ViewField label="Internal Note" value={booking.internalNote || "-"} />
+      <ViewField label="Remarks for Hotel" value={booking.remarksForHotel || "-"} />
     </div>
   );
 }
@@ -138,8 +160,18 @@ export const HotelBookingManager = forwardRef<
     mutationFn: async (bookingId: number) => deleteHotelBooking("admin", bookingId),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["reservation-service", "hotel", reservationId] });
-      setToastMessage("Hotel booking deleted successfully.");
+      await queryClient.invalidateQueries({ queryKey: ["room-availability"] });
+      setToastMessage("Hotel booking deleted.");
       setSelectedId(null);
+    },
+  });
+
+  const cancelMutation = useMutation({
+    mutationFn: async (bookingId: number) => cancelHotelBooking("admin", bookingId),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["reservation-service", "hotel", reservationId] });
+      await queryClient.invalidateQueries({ queryKey: ["room-availability"] });
+      setToastMessage("Hotel booking cancelled. Availability restored.");
     },
   });
 
@@ -164,14 +196,20 @@ export const HotelBookingManager = forwardRef<
         return;
       }
 
-      const confirmed = window.confirm("Delete selected hotel booking?");
-      if (!confirmed) {
+      if (selectedBooking.status !== "CANCELLED") {
+        const choice = window.confirm(
+          "Cancel this booking? (OK = Cancel booking and restore availability, Cancel = go back)\n\nTo permanently delete instead, use the Delete button after cancelling."
+        );
+        if (!choice) return;
+        void cancelMutation.mutateAsync(selectedBooking.id);
         return;
       }
 
+      const confirmed = window.confirm("Permanently delete this cancelled booking?");
+      if (!confirmed) return;
       void deleteMutation.mutateAsync(selectedBooking.id);
     },
-  }), [deleteMutation, selectedBooking]);
+  }), [deleteMutation, cancelMutation, selectedBooking]);
 
   useEffect(() => {
     if (!toastMessage) {
@@ -196,12 +234,16 @@ export const HotelBookingManager = forwardRef<
         <table className="min-w-full rounded-md border border-slate-200 text-left text-[11px]">
           <thead className="sticky top-0 bg-slate-100 text-slate-600">
             <tr>
-              <th className="border-b border-slate-200 px-2 py-1.5 font-semibold">Hotel</th>
+              <th className="border-b border-slate-200 px-2 py-1.5 font-semibold">Room</th>
+              <th className="border-b border-slate-200 px-2 py-1.5 font-semibold">Qty</th>
+              <th className="border-b border-slate-200 px-2 py-1.5 font-semibold">Status</th>
               <th className="border-b border-slate-200 px-2 py-1.5 font-semibold">Check In</th>
               <th className="border-b border-slate-200 px-2 py-1.5 font-semibold">Check Out</th>
+              <th className="border-b border-slate-200 px-2 py-1.5 font-semibold">Currency</th>
               <th className="border-b border-slate-200 px-2 py-1.5 font-semibold">Price</th>
+              <th className="border-b border-slate-200 px-2 py-1.5 font-semibold">Cost</th>
               <th className="border-b border-slate-200 px-2 py-1.5 font-semibold">Paid</th>
-              <th className="border-b border-slate-200 px-2 py-1.5 font-semibold">Paid Cancelation</th>
+              <th className="border-b border-slate-200 px-2 py-1.5 font-semibold">Confirm #</th>
             </tr>
           </thead>
           <tbody>
@@ -209,24 +251,35 @@ export const HotelBookingManager = forwardRef<
               <tr
                 key={booking.id}
                 onClick={() => setSelectedId(booking.id)}
+                onDoubleClick={() => { setSelectedId(booking.id); setIsEditOpen(true); }}
                 className={`cursor-pointer ${
                   selectedBooking?.id === booking.id
                     ? "bg-amber-200/80 hover:bg-amber-200"
-                    : index % 2 === 0
-                      ? "bg-white hover:bg-slate-50"
-                      : "bg-slate-50 hover:bg-slate-100"
+                    : booking.status === "CANCELLED"
+                      ? "opacity-50 line-through bg-slate-100 hover:bg-slate-150"
+                      : index % 2 === 0
+                        ? "bg-white hover:bg-slate-50"
+                        : "bg-slate-50 hover:bg-slate-100"
                 }`}
               >
-                <td className="border-b border-slate-100 px-2 py-1.5 font-medium text-slate-800">{booking.hotelName || "-"}</td>
+                <td className="border-b border-slate-100 px-2 py-1.5 font-medium text-slate-800 max-w-[140px] truncate">{booking.roomLabel || "-"}</td>
+                <td className="border-b border-slate-100 px-2 py-1.5 text-slate-700">{booking.quantity}</td>
+                <td className="border-b border-slate-100 px-2 py-1.5">
+                  <span className={`inline-flex rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${
+                    booking.status === "CONFIRMED" ? "bg-emerald-100 text-emerald-800"
+                    : booking.status === "CANCELLED" ? "bg-slate-100 text-slate-500"
+                    : "bg-amber-100 text-amber-800"
+                  }`}>
+                    {booking.status ?? "PENDING"}
+                  </span>
+                </td>
                 <td className="border-b border-slate-100 px-2 py-1.5 text-slate-700">{toDateLabel(booking.checkInDate)}</td>
                 <td className="border-b border-slate-100 px-2 py-1.5 text-slate-700">{toDateLabel(booking.checkOutDate)}</td>
-                <td className="border-b border-slate-100 px-2 py-1.5 text-slate-700">
-                  {booking.price
-                    ? `${booking.price} ${booking.currencyId ? (currencyLabelById[booking.currencyId] ?? booking.currencyId) : ""}`.trim()
-                    : "-"}
-                </td>
-                <td className="border-b border-slate-100 px-2 py-1.5 text-slate-700">{booking.paid ? "Yes" : "No"}</td>
-                <td className="border-b border-slate-100 px-2 py-1.5 text-slate-700">{booking.isPaidCancelation ? "Yes" : "No"}</td>
+                <td className="border-b border-slate-100 px-2 py-1.5 text-slate-700">{booking.sellingCurrencyId ? (currencyLabelById[booking.sellingCurrencyId] ?? booking.sellingCurrencyId) : "-"}</td>
+                <td className="border-b border-slate-100 px-2 py-1.5 text-slate-700">{booking.price ?? "-"}</td>
+                <td className="border-b border-slate-100 px-2 py-1.5 text-slate-500 italic">{booking.cost ?? "-"}</td>
+                <td className="border-b border-slate-100 px-2 py-1.5 text-slate-700">{booking.isPaid ? "Yes" : "No"}</td>
+                <td className="border-b border-slate-100 px-2 py-1.5 text-slate-500">{booking.confirmBookingNumber || "-"}</td>
               </tr>
             ))}
           </tbody>
@@ -252,7 +305,7 @@ export const HotelBookingManager = forwardRef<
 
       {isViewOpen && selectedBooking ? (
         <ModalShell title="View Hotel Booking" onClose={() => setIsViewOpen(false)}>
-          <HotelViewPanel booking={selectedBooking} />
+          <HotelViewPanel booking={selectedBooking} currencyLabelById={currencyLabelById} />
         </ModalShell>
       ) : null}
 

@@ -5,81 +5,149 @@ import type { AxiosError } from "axios";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
 import axiosInstance from "@/lib/axios";
-import { INVENTORY_ENDPOINTS } from "@/lib/api-endpoints";
+import { FINANCE_ENDPOINTS, INVENTORY_ENDPOINTS } from "@/lib/api-endpoints";
 import { mapBackendValidationErrors, type FieldErrorMap } from "@/lib/forms/backend-errors";
 import { createHotelBooking, type HotelBooking, updateHotelBooking } from "@/lib/api/reservation-services";
-import { convertCurrencyAmount } from "@/lib/api/tour-packages";
+import { listHotelRooms, fetchRoomAvailability, type HotelRoom } from "@/lib/api/hotel-rooms";
 
-const hotelBookingSchema = z.object({
+// ---- Schema ----------------------------------------------------------------
+
+const schema = z.object({
   hotel: z.string().min(1, "Hotel is required."),
+  hotel_room: z.string().min(1, "Hotel room is required."),
   check_in_date: z.string().min(1, "Check-in date is required."),
   check_out_date: z.string().min(1, "Check-out date is required."),
-  price: z.string().min(1, "Price is required."),
-  currency: z.string().min(1, "Currency is required."),
-  paid: z.boolean(),
-  is_paid_cancelation: z.boolean(),
+  quantity: z.string().refine((v) => Number.isInteger(Number(v)) && Number(v) >= 1, "Must be >= 1."),
+  status: z.string().min(1, "Status is required."),
+  is_paid: z.boolean(),
+  // Financials
+  selling_currency: z.string(),
+  price: z.string(),
+  agency_price: z.string(),
+  cost_currency: z.string(),
+  cost: z.string(),
+  cross_currency_rate: z.string(),
+  // Tracking
+  confirm_booking_number: z.string(),
+  agent_confirmation_number: z.string(),
+  hotel_cancellation_number: z.string(),
+  // Notes
+  internal_note: z.string(),
+  remarks_for_hotel: z.string(),
 });
 
-type HotelBookingFormValues = z.infer<typeof hotelBookingSchema>;
+type FormValues = z.infer<typeof schema>;
 
-function normalizeHotelOptions(payload: unknown) {
+// ---- Helpers ----------------------------------------------------------------
+
+type HotelOption = { id: string; label: string };
+type CurrencyOption = { id: string; label: string };
+
+function normalizeHotelOptions(payload: unknown): HotelOption[] {
   const rows = Array.isArray(payload)
     ? payload
     : payload && typeof payload === "object" && Array.isArray((payload as { results?: unknown[] }).results)
       ? (payload as { results: unknown[] }).results
       : [];
-
-  return rows
-    .filter((row): row is Record<string, unknown> => Boolean(row && typeof row === "object"))
-    .map((row) => {
-      const id = typeof row.id === "number" || typeof row.id === "string" ? String(row.id) : "";
-      const label =
+  return (rows as Record<string, unknown>[])
+    .filter((row) => row && typeof row === "object")
+    .map((row) => ({
+      id: String(row.id ?? ""),
+      label:
         (typeof row.name === "string" && row.name) ||
-        (typeof row.title === "string" && row.title) ||
         (typeof row.name_en === "string" && row.name_en) ||
-        id;
+        (typeof row.title === "string" && row.title) ||
+        String(row.id ?? ""),
+    }))
+    .filter((opt) => opt.id.length > 0);
+}
 
-      const currency = row.currency;
-      const currencyId =
-        typeof currency === "number" || typeof currency === "string"
-          ? String(currency)
-          : currency && typeof currency === "object" && ("id" in currency)
-            ? String((currency as { id?: unknown }).id ?? "")
-            : "";
-
-      const publicPriceRaw = row.price ?? row.public_price;
-      const agencyPriceRaw = row.agency_price;
-      const publicPrice = Number.parseFloat(String(publicPriceRaw ?? ""));
-      const agencyPrice = Number.parseFloat(String(agencyPriceRaw ?? ""));
-
+function normalizeCurrencyOptions(payload: unknown): CurrencyOption[] {
+  const rows = Array.isArray(payload)
+    ? payload
+    : payload && typeof payload === "object" && Array.isArray((payload as { results?: unknown[] }).results)
+      ? (payload as { results: unknown[] }).results
+      : [];
+  return (rows as Record<string, unknown>[])
+    .filter((row) => row && typeof row === "object")
+    .map((row) => {
+      const code =
+        (typeof row.code === "string" && row.code) ||
+        (typeof row.iso_code === "string" && row.iso_code) ||
+        "";
+      const name =
+        (typeof row.name_en === "string" && row.name_en) ||
+        (typeof row.name === "string" && row.name) || "";
       return {
-        id,
-        label,
-        currencyId,
-        publicPrice: Number.isFinite(publicPrice) ? publicPrice : null,
-        agencyPrice: Number.isFinite(agencyPrice) ? agencyPrice : null,
+        id: String(row.id ?? ""),
+        label: code && name ? `${code} - ${name}` : code || String(row.id ?? ""),
       };
     })
-    .filter((option) => option.id.length > 0);
+    .filter((opt) => opt.id.length > 0);
 }
 
-function fieldError(errors: FieldErrorMap, key: keyof HotelBookingFormValues) {
-  return errors[key] ?? "";
+function roomOptionLabel(room: HotelRoom): string {
+  return `${room.room_type} / ${room.board_type} [${room.date_from} - ${room.date_to}] (avail: ${room.availability_count})`;
 }
+
+function emptyValues(): FormValues {
+  return {
+    hotel: "",
+    hotel_room: "",
+    check_in_date: "",
+    check_out_date: "",
+    quantity: "1",
+    status: "PENDING",
+    is_paid: false,
+    selling_currency: "",
+    price: "",
+    agency_price: "",
+    cost_currency: "",
+    cost: "",
+    cross_currency_rate: "1.0000000000",
+    confirm_booking_number: "",
+    agent_confirmation_number: "",
+    hotel_cancellation_number: "",
+    internal_note: "",
+    remarks_for_hotel: "",
+  };
+}
+
+function bookingToValues(booking: HotelBooking): FormValues {
+  return {
+    hotel: "",
+    hotel_room: String(booking.hotelRoomId ?? ""),
+    check_in_date: booking.checkInDate?.slice(0, 10) ?? "",
+    check_out_date: booking.checkOutDate?.slice(0, 10) ?? "",
+    quantity: String(booking.quantity ?? 1),
+    status: booking.status ?? "PENDING",
+    is_paid: booking.isPaid ?? false,
+    selling_currency: booking.sellingCurrencyId ?? "",
+    price: booking.price ?? "",
+    agency_price: booking.agencyPrice ?? "",
+    cost_currency: booking.costCurrencyId ?? "",
+    cost: booking.cost ?? "",
+    cross_currency_rate: booking.crossCurrencyRate ?? "1.0000000000",
+    confirm_booking_number: booking.confirmBookingNumber ?? "",
+    agent_confirmation_number: booking.agentConfirmationNumber ?? "",
+    hotel_cancellation_number: booking.hotelCancellationNumber ?? "",
+    internal_note: booking.internalNote ?? "",
+    remarks_for_hotel: booking.remarksForHotel ?? "",
+  };
+}
+
+// ---- Component --------------------------------------------------------------
 
 export default function HotelBookingForm({
   reservationId,
   ownerType,
-  currencyOptions,
-  reservationCurrencyId,
-  currencyCodeById,
   booking,
   onSuccess,
   onCancel,
 }: {
   reservationId: number;
-  ownerType: "AGENCY" | "NORMAL";
-  currencyOptions: Array<{ id: string; label: string }>;
+  ownerType?: "AGENCY" | "NORMAL";
+  currencyOptions?: Array<{ id: string; label: string }>;
   reservationCurrencyId?: string;
   currencyCodeById?: Record<string, string>;
   booking?: HotelBooking;
@@ -87,138 +155,184 @@ export default function HotelBookingForm({
   onCancel?: () => void;
 }) {
   const queryClient = useQueryClient();
-  const [values, setValues] = useState<HotelBookingFormValues>({
-    hotel: booking?.hotelId ?? "",
-    check_in_date: booking?.checkInDate?.slice(0, 10) ?? "",
-    check_out_date: booking?.checkOutDate?.slice(0, 10) ?? "",
-    price: booking?.price ?? "",
-    currency: booking?.currencyId ?? reservationCurrencyId ?? currencyOptions[0]?.id ?? "",
-    paid: booking?.paid ?? false,
-    is_paid_cancelation: booking?.isPaidCancelation ?? false,
-  });
+
+  const [values, setValues] = useState<FormValues>(() =>
+    booking ? bookingToValues(booking) : emptyValues()
+  );
   const [fieldErrors, setFieldErrors] = useState<FieldErrorMap>({});
   const [formError, setFormError] = useState("");
+
+  // ---- Data queries ----------------------------------------------------------
 
   const hotelsQuery = useQuery({
     queryKey: ["inventory-hotels", "admin"],
     queryFn: async () => {
-      const response = await axiosInstance.get(INVENTORY_ENDPOINTS.adminHotels);
-      return normalizeHotelOptions(response.data);
+      const res = await axiosInstance.get(INVENTORY_ENDPOINTS.adminHotels);
+      return normalizeHotelOptions(res.data);
+    },
+  });
+
+  const currenciesQuery = useQuery({
+    queryKey: ["finance-currencies"],
+    queryFn: async () => {
+      const res = await axiosInstance.get(FINANCE_ENDPOINTS.adminCurrencies);
+      return normalizeCurrencyOptions(res.data);
     },
   });
 
   const hotelOptions = hotelsQuery.data ?? [];
+  const currencyOptions = currenciesQuery.data ?? [];
 
-  const selectedHotelOption = useMemo(
-    () => hotelOptions.find((option) => option.id === values.hotel) ?? null,
-    [hotelOptions, values.hotel]
+  // When editing, resolve the parent hotel from the booked room
+  const [resolvedHotelId, setResolvedHotelId] = useState<string>("");
+  useEffect(() => {
+    if (!booking?.hotelRoomId || resolvedHotelId) return;
+    if (!hotelOptions.length) return;
+    void (async () => {
+      try {
+        const rooms = await listHotelRooms();
+        const room = rooms.find((r) => r.id === booking.hotelRoomId);
+        if (room) {
+          const hotelId = String(room.hotel);
+          setResolvedHotelId(hotelId);
+          setValues((prev) => ({ ...prev, hotel: hotelId }));
+        }
+      } catch {
+        // user can select manually
+      }
+    })();
+  }, [booking, hotelOptions, resolvedHotelId]);
+
+  const selectedHotelId = values.hotel;
+
+  const roomsQuery = useQuery({
+    queryKey: ["hotel-rooms", selectedHotelId],
+    queryFn: async () => listHotelRooms(Number(selectedHotelId)),
+    enabled: selectedHotelId.length > 0,
+  });
+  const roomOptions = roomsQuery.data ?? [];
+
+  const selectedRoom = useMemo(
+    () => roomOptions.find((r) => String(r.id) === values.hotel_room) ?? null,
+    [roomOptions, values.hotel_room]
   );
 
+  // Fetch real availability from the server when room + both dates are selected.
+  const canFetchAvailability =
+    values.hotel_room.length > 0 &&
+    values.check_in_date.length > 0 &&
+    values.check_out_date.length > 0;
+
+  const availabilityQuery = useQuery({
+    queryKey: ["room-availability", values.hotel_room, values.check_in_date, values.check_out_date],
+    queryFn: () =>
+      fetchRoomAvailability(
+        Number(values.hotel_room),
+        values.check_in_date,
+        values.check_out_date
+      ),
+    enabled: canFetchAvailability,
+    staleTime: 30_000,
+  });
+
+  const availability = availabilityQuery.data ?? null;
+
+  // When editing, available_count already excludes the current booking on the server.
+  // For the UI preview, subtract the quantity being entered to show what remains after save.
+  const qty = Number(values.quantity);
+  const availableAfterThis = availability
+    ? availability.available_count - (Number.isFinite(qty) ? qty : 0)
+    : null;
+
+  // Auto-populate financials when room changes
   useEffect(() => {
-    if (!selectedHotelOption) {
-      return;
-    }
+    if (!selectedRoom) return;
+    const roomCurrencyId = String(selectedRoom.currency);
+    const isAgency = ownerType === "AGENCY";
+    const autoPrice = isAgency
+      ? (selectedRoom.agency_price ?? selectedRoom.public_price)
+      : selectedRoom.public_price;
 
-    const applyHotelPricing = async () => {
-      const rolePrice =
-        ownerType === "AGENCY"
-          ? selectedHotelOption.agencyPrice ?? selectedHotelOption.publicPrice
-          : selectedHotelOption.publicPrice ?? selectedHotelOption.agencyPrice;
+    setValues((prev) => ({
+      ...prev,
+      selling_currency: roomCurrencyId,
+      price: autoPrice ?? "",
+      agency_price: selectedRoom.agency_price ?? "",
+      cost_currency: roomCurrencyId,
+      cost: selectedRoom.cost_price ?? "",
+    }));
+  }, [selectedRoom, ownerType]);
 
-      if (rolePrice === null || !Number.isFinite(rolePrice)) {
-        return;
-      }
+  // ---- Helpers ---------------------------------------------------------------
 
-      let nextPrice = rolePrice;
-      let nextCurrency = selectedHotelOption.currencyId;
+  const inputCls =
+    "w-full rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs text-slate-800 outline-none transition focus:border-slate-500 focus:ring-2 focus:ring-slate-200";
 
-      if (
-        reservationCurrencyId &&
-        nextCurrency &&
-        reservationCurrencyId !== nextCurrency &&
-        currencyCodeById
-      ) {
-        const fromCode = currencyCodeById[nextCurrency];
-        const toCode = currencyCodeById[reservationCurrencyId];
+  const update = <K extends keyof FormValues>(key: K, value: FormValues[K]) => {
+    setValues((prev) => ({ ...prev, [key]: value }));
+    setFieldErrors((prev) => {
+      if (!prev[key]) return prev;
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+  };
 
-        if (fromCode && toCode) {
-          try {
-            nextPrice = await convertCurrencyAmount({ from: fromCode, to: toCode, amount: nextPrice });
-            nextCurrency = reservationCurrencyId;
-          } catch {
-            // Keep source amount when conversion API is unavailable.
-          }
-        }
-      }
-
-      setValues((previous) => ({
-        ...previous,
-        price: nextPrice.toFixed(2),
-        currency: nextCurrency || previous.currency,
-      }));
-    };
-
-    void applyHotelPricing();
-  }, [selectedHotelOption, ownerType, reservationCurrencyId, currencyCodeById]);
+  // ---- Mutation --------------------------------------------------------------
 
   const mutation = useMutation({
-    mutationFn: async (payload: HotelBookingFormValues) => {
+    mutationFn: async (payload: FormValues) => {
+      const numOrNull = (v: string) => {
+        const n = Number(v);
+        return v.trim() && Number.isFinite(n) ? n : null;
+      };
+      const strOrNull = (v: string) => v.trim() || null;
+
       const requestPayload = {
         reservation: reservationId,
-        hotel: Number(payload.hotel),
+        hotel_room: Number(payload.hotel_room),
         check_in_date: payload.check_in_date,
         check_out_date: payload.check_out_date,
-        price: payload.price,
-        currency: payload.currency ? Number(payload.currency) : null,
-        paid: payload.paid,
-        is_paid_cancelation: payload.is_paid_cancelation,
-        is_paid_cancellation: payload.is_paid_cancelation,
+        quantity: Number(payload.quantity),
+        status: payload.status as "PENDING" | "CONFIRMED" | "CANCELLED",
+        is_paid: payload.is_paid,
+        selling_currency: numOrNull(payload.selling_currency),
+        price: strOrNull(payload.price),
+        agency_price: strOrNull(payload.agency_price),
+        cost_currency: numOrNull(payload.cost_currency),
+        cost: strOrNull(payload.cost),
+        cross_currency_rate: payload.cross_currency_rate || "1.0000000000",
+        confirm_booking_number: payload.confirm_booking_number,
+        agent_confirmation_number: payload.agent_confirmation_number,
+        hotel_cancellation_number: payload.hotel_cancellation_number,
+        internal_note: payload.internal_note,
+        remarks_for_hotel: payload.remarks_for_hotel,
       };
 
       if (booking?.id) {
         return updateHotelBooking("admin", booking.id, requestPayload);
       }
-
       return createHotelBooking("admin", requestPayload);
     },
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["reservation-service", "hotel", reservationId] });
+      // Refresh availability so subsequent adds show the updated count.
+      await queryClient.invalidateQueries({ queryKey: ["room-availability"] });
       onSuccess?.();
     },
   });
-
-  const inputClassName = useMemo(
-    () =>
-      "w-full rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs text-slate-800 outline-none transition focus:border-slate-500 focus:ring-2 focus:ring-slate-200",
-    []
-  );
-
-  const update = <K extends keyof HotelBookingFormValues>(key: K, value: HotelBookingFormValues[K]) => {
-    setValues((previous) => ({ ...previous, [key]: value }));
-    setFieldErrors((previous) => {
-      if (!previous[key]) {
-        return previous;
-      }
-
-      const next = { ...previous };
-      delete next[key];
-      return next;
-    });
-  };
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setFieldErrors({});
     setFormError("");
 
-    const validation = hotelBookingSchema.safeParse(values);
+    const validation = schema.safeParse(values);
     if (!validation.success) {
       const nextErrors: FieldErrorMap = {};
       for (const issue of validation.error.issues) {
         const key = issue.path[0];
-        if (typeof key === "string" && !nextErrors[key]) {
-          nextErrors[key] = issue.message;
-        }
+        if (typeof key === "string" && !nextErrors[key]) nextErrors[key] = issue.message;
       }
       setFieldErrors(nextErrors);
       return;
@@ -236,105 +350,237 @@ export default function HotelBookingForm({
     }
   };
 
+  // ---- Section header --------------------------------------------------------
+  function SectionHeading({ title }: { title: string }) {
+    return (
+      <div className="sm:col-span-2 border-b border-slate-200 pb-1 mt-1">
+        <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">{title}</p>
+      </div>
+    );
+  }
+
+  // ---- Render ----------------------------------------------------------------
   return (
     <form onSubmit={handleSubmit} className="grid gap-3 sm:grid-cols-2">
+
+      {/* ---- Section 1: Booking Info ---- */}
+      <SectionHeading title="Booking Info" />
+
+      {/* Hotel selector */}
       <div className="sm:col-span-2">
-        <label htmlFor="hotel" className="mb-1 block text-[11px] font-medium text-slate-600">
-          Hotel
-        </label>
-        <div className="flex items-center gap-2">
-          <select
-            id="hotel"
-            value={values.hotel}
-            onChange={(event) => update("hotel", event.target.value)}
-            disabled={hotelsQuery.isLoading}
-            className={`${inputClassName} disabled:cursor-wait disabled:opacity-60`}
-          >
-            <option value="">{hotelsQuery.isLoading ? "Loading hotels..." : "Select hotel"}</option>
-            {hotelOptions.map((option) => (
-              <option key={option.id} value={option.id}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-          <button
-            type="button"
-            onClick={() => {
-              const base = "/hotels";
-              const target = values.hotel ? `${base}?hotelId=${encodeURIComponent(values.hotel)}` : base;
-              window.open(target, "_blank", "noopener,noreferrer");
-            }}
-            className="shrink-0 rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100"
-          >
-            Open Hotel Inventory
-          </button>
-        </div>
-        {fieldError(fieldErrors, "hotel") ? <p className="mt-1 text-[11px] text-red-600">{fieldErrors.hotel}</p> : null}
-      </div>
-
-      <div>
-        <label htmlFor="check_in_date" className="mb-1 block text-[11px] font-medium text-slate-600">
-          Check In Date
-        </label>
-        <input id="check_in_date" type="date" value={values.check_in_date} onChange={(event) => update("check_in_date", event.target.value)} className={inputClassName} />
-        {fieldError(fieldErrors, "check_in_date") ? <p className="mt-1 text-[11px] text-red-600">{fieldErrors.check_in_date}</p> : null}
-      </div>
-
-      <div>
-        <label htmlFor="check_out_date" className="mb-1 block text-[11px] font-medium text-slate-600">
-          Check Out Date
-        </label>
-        <input id="check_out_date" type="date" value={values.check_out_date} onChange={(event) => update("check_out_date", event.target.value)} className={inputClassName} />
-        {fieldError(fieldErrors, "check_out_date") ? <p className="mt-1 text-[11px] text-red-600">{fieldErrors.check_out_date}</p> : null}
-      </div>
-
-      <div>
-        <label htmlFor="price" className="mb-1 block text-[11px] font-medium text-slate-600">
-          Price
-        </label>
-        <input
-          id="price"
-          type="number"
-          min="0"
-          step="0.01"
-          value={values.price}
-          onChange={(event) => update("price", event.target.value)}
-          className={inputClassName}
-          placeholder="0.00"
-        />
-        {fieldError(fieldErrors, "price") ? <p className="mt-1 text-[11px] text-red-600">{fieldErrors.price}</p> : null}
-      </div>
-
-      <div>
-        <label htmlFor="currency" className="mb-1 block text-[11px] font-medium text-slate-600">
-          Currency
-        </label>
+        <label htmlFor="hotel" className="mb-1 block text-[11px] font-medium text-slate-600">Hotel</label>
         <select
-          id="currency"
-          value={values.currency}
-          onChange={(event) => update("currency", event.target.value)}
-          className={inputClassName}
+          id="hotel"
+          value={values.hotel}
+          onChange={(e) => { update("hotel", e.target.value); update("hotel_room", ""); }}
+          disabled={hotelsQuery.isLoading}
+          className={`${inputCls} disabled:cursor-wait disabled:opacity-60`}
         >
-          <option value="">Select currency</option>
-          {currencyOptions.map((option) => (
-            <option key={option.id} value={option.id}>
-              {option.label}
-            </option>
+          <option value="">{hotelsQuery.isLoading ? "Loading hotels..." : "Select hotel"}</option>
+          {hotelOptions.map((opt) => (
+            <option key={opt.id} value={opt.id}>{opt.label}</option>
           ))}
         </select>
-        {fieldError(fieldErrors, "currency") ? <p className="mt-1 text-[11px] text-red-600">{fieldErrors.currency}</p> : null}
+        {fieldErrors.hotel ? <p className="mt-1 text-[11px] text-red-600">{fieldErrors.hotel}</p> : null}
       </div>
 
-      <label className="flex items-center gap-2 rounded-md border border-slate-200 px-3 py-2 text-xs font-medium text-slate-700">
-        <input type="checkbox" checked={values.paid} onChange={(event) => update("paid", event.target.checked)} />
+      {/* Room selector */}
+      <div className="sm:col-span-2">
+        <label htmlFor="hotel_room" className="mb-1 block text-[11px] font-medium text-slate-600">Room</label>
+        <select
+          id="hotel_room"
+          value={values.hotel_room}
+          onChange={(e) => update("hotel_room", e.target.value)}
+          disabled={!selectedHotelId || roomsQuery.isLoading}
+          className={`${inputCls} disabled:cursor-not-allowed disabled:opacity-60`}
+        >
+          <option value="">
+            {!selectedHotelId ? "Select a hotel first" : roomsQuery.isLoading ? "Loading rooms..." : roomOptions.length === 0 ? "No rooms available" : "Select room"}
+          </option>
+          {roomOptions.map((room) => (
+            <option key={room.id} value={String(room.id)}>{roomOptionLabel(room)}</option>
+          ))}
+        </select>
+        {availability ? (
+          <p className="mt-1 text-[11px] text-slate-500">
+            <span className={`font-semibold ${
+              availability.available_count > 0 ? "text-emerald-700"
+                : availability.pending_count > 0 ? "text-amber-600"
+                : "text-red-600"
+            }`}>
+              {availability.available_count} available
+            </span>
+            {availability.pending_count > 0 ? (
+              <span className="text-amber-600"> &middot; {availability.pending_count} pending</span>
+            ) : null}
+            {availability.confirmed_count > 0 ? (
+              <span className="text-slate-500"> &middot; {availability.confirmed_count} confirmed</span>
+            ) : null}
+            <span className="text-slate-400"> (of {availability.total_count} total)</span>
+            {availableAfterThis !== null && qty > 0 ? (
+              <>
+                {" "}&#8594; after save:{" "}
+                <span className={`font-semibold ${
+                  availableAfterThis < 0 ? "text-red-600" : availableAfterThis === 0 ? "text-amber-600" : "text-emerald-700"
+                }`}>
+                  {availableAfterThis}
+                </span>
+                {availableAfterThis < 0 ? <span className="text-red-600"> &#9888; exceeds availability</span> : null}
+              </>
+            ) : null}
+          </p>
+        ) : availabilityQuery.isLoading && canFetchAvailability ? (
+          <p className="mt-1 text-[11px] text-slate-400">Checking availability...</p>
+        ) : selectedRoom ? (
+          <p className="mt-1 text-[11px] text-slate-500">
+            Total capacity: <span className="font-semibold text-slate-700">{selectedRoom.availability_count}</span> rooms
+            {" \u00b7 "}Select dates to see live availability.
+          </p>
+        ) : null}
+        {fieldErrors.hotel_room ? <p className="mt-1 text-[11px] text-red-600">{fieldErrors.hotel_room}</p> : null}
+      </div>
+
+      {/* Dates */}
+      <div>
+        <label htmlFor="check_in_date" className="mb-1 block text-[11px] font-medium text-slate-600">Check-In Date</label>
+        <input id="check_in_date" type="date" value={values.check_in_date} onChange={(e) => update("check_in_date", e.target.value)} className={inputCls} />
+        {fieldErrors.check_in_date ? <p className="mt-1 text-[11px] text-red-600">{fieldErrors.check_in_date}</p> : null}
+      </div>
+
+      <div>
+        <label htmlFor="check_out_date" className="mb-1 block text-[11px] font-medium text-slate-600">Check-Out Date</label>
+        <input id="check_out_date" type="date" value={values.check_out_date} onChange={(e) => update("check_out_date", e.target.value)} className={inputCls} />
+        {fieldErrors.check_out_date ? <p className="mt-1 text-[11px] text-red-600">{fieldErrors.check_out_date}</p> : null}
+      </div>
+
+      {/* Quantity */}
+      <div>
+        <label htmlFor="quantity" className="mb-1 block text-[11px] font-medium text-slate-600">Quantity</label>
+        <input
+          id="quantity"
+          type="number"
+          min="1"
+          step="1"
+          max={availability ? availability.available_count : undefined}
+          value={values.quantity}
+          onChange={(e) => update("quantity", e.target.value)}
+          className={inputCls}
+          placeholder="1"
+        />
+        {fieldErrors.quantity ? <p className="mt-1 text-[11px] text-red-600">{fieldErrors.quantity}</p> : null}
+        {availability && qty > availability.available_count ? (
+          <p className="mt-1 text-[11px] text-red-600">
+            Only {availability.available_count} room{availability.available_count !== 1 ? "s" : ""} available for these dates.
+          </p>
+        ) : null}
+      </div>
+
+      {/* Paid checkbox */}
+      <label className="flex items-center gap-2 self-end rounded-md border border-slate-200 px-3 py-2 text-xs font-medium text-slate-700">
+        <input type="checkbox" checked={values.is_paid} onChange={(e) => update("is_paid", e.target.checked)} />
         Paid
       </label>
 
-      <label className="flex items-center gap-2 rounded-md border border-slate-200 px-3 py-2 text-xs font-medium text-slate-700">
-        <input type="checkbox" checked={values.is_paid_cancelation} onChange={(event) => update("is_paid_cancelation", event.target.checked)} />
-        Is Paid Cancelation
-      </label>
+      {/* Status */}
+      <div className="sm:col-span-2">
+        <label htmlFor="status" className="mb-1 block text-[11px] font-medium text-slate-600">Status</label>
+        <select
+          id="status"
+          value={values.status}
+          onChange={(e) => update("status", e.target.value)}
+          className={inputCls}
+        >
+          <option value="PENDING">Pending</option>
+          <option value="CONFIRMED">Confirmed</option>
+          <option value="CANCELLED">Cancelled</option>
+        </select>
+        {values.status === "CANCELLED" ? (
+          <p className="mt-1 text-[11px] text-amber-600">Saving as Cancelled will restore room availability.</p>
+        ) : null}
+      </div>
 
+      {/* ---- Section 2: Financials ---- */}
+      <SectionHeading title="Financials" />
+
+      <div>
+        <label htmlFor="selling_currency" className="mb-1 block text-[11px] font-medium text-slate-600">Selling Currency</label>
+        <select id="selling_currency" value={values.selling_currency} onChange={(e) => update("selling_currency", e.target.value)} className={inputCls}>
+          <option value="">Select currency</option>
+          {currencyOptions.map((opt) => <option key={opt.id} value={opt.id}>{opt.label}</option>)}
+        </select>
+      </div>
+
+      <div>
+        <label htmlFor="price" className="mb-1 block text-[11px] font-medium text-slate-600">Price</label>
+        <input id="price" type="number" min="0" step="0.01" value={values.price} onChange={(e) => update("price", e.target.value)} className={inputCls} placeholder="0.00" />
+        {fieldErrors.price ? <p className="mt-1 text-[11px] text-red-600">{fieldErrors.price}</p> : null}
+      </div>
+
+      <div>
+        <label htmlFor="agency_price" className="mb-1 block text-[11px] font-medium text-slate-600">Agency Price <span className="text-slate-400">(optional)</span></label>
+        <input id="agency_price" type="number" min="0" step="0.01" value={values.agency_price} onChange={(e) => update("agency_price", e.target.value)} className={inputCls} placeholder="0.00" />
+      </div>
+
+      <div>
+        <label htmlFor="cost_currency" className="mb-1 block text-[11px] font-medium text-slate-600">Cost Currency</label>
+        <select id="cost_currency" value={values.cost_currency} onChange={(e) => update("cost_currency", e.target.value)} className={inputCls}>
+          <option value="">Select currency</option>
+          {currencyOptions.map((opt) => <option key={opt.id} value={opt.id}>{opt.label}</option>)}
+        </select>
+      </div>
+
+      <div className="rounded-md border border-amber-200 bg-amber-50/50 p-2">
+        <label htmlFor="cost" className="mb-1 block text-[11px] font-medium text-slate-600">
+          Cost{" "}
+          <span className="ml-1 inline-flex items-center rounded-full bg-amber-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-amber-800">
+            Internal
+          </span>
+        </label>
+        <input id="cost" type="number" min="0" step="0.01" value={values.cost} onChange={(e) => update("cost", e.target.value)} className={inputCls} placeholder="0.00" />
+      </div>
+
+      <div>
+        <label htmlFor="cross_currency_rate" className="mb-1 block text-[11px] font-medium text-slate-600">Cross-Currency Rate</label>
+        <input id="cross_currency_rate" type="number" min="0" step="0.0000000001" value={values.cross_currency_rate} onChange={(e) => update("cross_currency_rate", e.target.value)} className={inputCls} placeholder="1.0000000000" />
+      </div>
+
+      {/* ---- Section 3: Tracking ---- */}
+      <SectionHeading title="Tracking" />
+
+      <div>
+        <label htmlFor="confirm_booking_number" className="mb-1 block text-[11px] font-medium text-slate-600">Hotel Confirmation #</label>
+        <input id="confirm_booking_number" type="text" value={values.confirm_booking_number} onChange={(e) => update("confirm_booking_number", e.target.value)} className={inputCls} placeholder="Hotel's confirmation reference" />
+      </div>
+
+      <div>
+        <label htmlFor="agent_confirmation_number" className="mb-1 block text-[11px] font-medium text-slate-600">Agent Confirmation #</label>
+        <input id="agent_confirmation_number" type="text" value={values.agent_confirmation_number} onChange={(e) => update("agent_confirmation_number", e.target.value)} className={inputCls} placeholder="Our internal reference" />
+      </div>
+
+      <div className="sm:col-span-2">
+        <label htmlFor="hotel_cancellation_number" className="mb-1 block text-[11px] font-medium text-slate-600">Cancellation # <span className="text-slate-400">(fill when cancelled)</span></label>
+        <input id="hotel_cancellation_number" type="text" value={values.hotel_cancellation_number} onChange={(e) => update("hotel_cancellation_number", e.target.value)} className={inputCls} placeholder="Hotel cancellation reference" />
+      </div>
+
+      {/* ---- Section 4: Notes ---- */}
+      <SectionHeading title="Notes" />
+
+      <div className="sm:col-span-2 rounded-md border border-amber-200 bg-amber-50/50 p-2">
+        <label htmlFor="internal_note" className="mb-1 block text-[11px] font-medium text-slate-600">
+          Internal Note{" "}
+          <span className="ml-1 inline-flex items-center rounded-full bg-amber-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-amber-800">
+            Staff only
+          </span>
+        </label>
+        <textarea id="internal_note" rows={2} value={values.internal_note} onChange={(e) => update("internal_note", e.target.value)} className={inputCls} placeholder="Internal notes visible to staff only" />
+      </div>
+
+      <div className="sm:col-span-2">
+        <label htmlFor="remarks_for_hotel" className="mb-1 block text-[11px] font-medium text-slate-600">Remarks for Hotel</label>
+        <textarea id="remarks_for_hotel" rows={2} value={values.remarks_for_hotel} onChange={(e) => update("remarks_for_hotel", e.target.value)} className={inputCls} placeholder="Notes sent to the hotel" />
+      </div>
+
+      {/* ---- Footer ---- */}
       {formError ? <p className="sm:col-span-2 text-[11px] font-medium text-red-600">{formError}</p> : null}
 
       <div className="sm:col-span-2 flex justify-end gap-2 pt-1">
@@ -343,8 +589,12 @@ export default function HotelBookingForm({
             Cancel
           </button>
         ) : null}
-        <button type="submit" disabled={mutation.isPending} className="rounded-md border border-[#0f2347] bg-[#0f2347] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#0b1b38] disabled:cursor-not-allowed disabled:opacity-60">
-          {mutation.isPending ? "Saving..." : booking ? "Update Hotel" : "Save Hotel"}
+        <button
+          type="submit"
+          disabled={mutation.isPending}
+          className="rounded-md border border-[#0f2347] bg-[#0f2347] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#0b1b38] disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {mutation.isPending ? "Saving..." : booking ? "Update Booking" : "Save Booking"}
         </button>
       </div>
     </form>

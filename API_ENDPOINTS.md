@@ -94,14 +94,29 @@ Admin approval:
 ### Admin (IsAdminUser)
 - `GET, POST /api/v1/inventory/admin/hotels/`
 - `GET, PUT, PATCH, DELETE /api/v1/inventory/admin/hotels/{id}/`
-  - **Hotel fields:**
-    - `name`, `city`, `stars`, `currency`
-    - `price` (public price), `agency_price` (optional; agency/staff users see this instead)
-    - `cost_price` (optional; internal procurement cost paid by Jovira — **admin only, never returned to client endpoints**)
+  - **Hotel fields (static info only — no pricing):**
+    - `name`, `city`, `stars`
     - `description` (multi-language)
     - `main_image` (image upload)
     - `features` (list of feature IDs)
     - `gallery_images` (list of images, each with `image`, `alt_text`, `order`)
+    - `rooms` (read-only nested list of `HotelRoom` objects)
+- `GET, POST /api/v1/inventory/admin/hotel-rooms/`
+- `GET, PUT, PATCH, DELETE /api/v1/inventory/admin/hotel-rooms/{id}/`
+  - Filter by hotel: `GET /api/v1/inventory/admin/hotel-rooms/?hotel=<id>`
+  - **Availability check:** `GET /api/v1/inventory/admin/hotel-rooms/{id}/availability/?check_in=YYYY-MM-DD&check_out=YYYY-MM-DD`
+  - **HotelRoom fields:**
+    - `hotel` (integer FK, required)
+    - `room_type`: `SINGLE | DOUBLE | TRIPLE | FAMILY | SUITE`
+    - `board_type`: `RO | BB | HB | FB | ALL | UALL`
+    - `date_from` (DateField, required)
+    - `date_to` (DateField, required)
+    - `availability_count` (PositiveInteger, default 0)
+    - `currency` (FK)
+    - `public_price` (required)
+    - `agency_price` (optional)
+    - `cost_price` (optional; internal — admin only)
+    - `note` (optional text; multi-language)
 - `GET, POST /api/v1/inventory/admin/hotel-features/`
 - `GET, PUT, PATCH, DELETE /api/v1/inventory/admin/hotel-features/{id}/`
 - `GET, POST /api/v1/inventory/admin/hotel-images/`
@@ -118,11 +133,10 @@ Admin approval:
     - Core: `name`, `destination`, `days`, `nights`, `currency`
     - Prices: `public_price`, `agency_price`, `cost_price`
     - Optional component selectors (IDs): `flights`, `hotels`, `transfers`, `excursions`
-    - Read-only guidance: `minimum_cost_floor`
+    - Read-only guidance: `minimum_cost_floor` (calculated from flights, transfers, excursions only — hotel costs are now per-room)
   - **Validation rules:**
     - `cost_price`, `agency_price`, and `public_price` cannot be below `minimum_cost_floor`.
     - `public_price` cannot be below `agency_price`.
-    - Component costs are auto-converted to package currency for floor calculation.
 - `GET, POST /api/v1/inventory/admin/excursions/`
 - `GET, PUT, PATCH, DELETE /api/v1/inventory/admin/excursions/{id}/`
   - **Excursion fields:** `name`, `city`, `duration_hours`, `currency`, `public_price`, `agency_price`, `cost_price` (internal cost — admin only)
@@ -132,10 +146,27 @@ Admin approval:
 - `GET, PUT, PATCH, DELETE /api/v1/inventory/admin/transfers/{id}/`
   - **Transfer fields:** `provider` (FK), `name`, `from_location`, `to_location`, `vehicle_type`, `capacity`, `currency`, `public_price`, `agency_price`, `cost_price` (internal cost — admin only)
 
+HotelRoom admin create payload example:
+```json
+{
+  "hotel": 3,
+  "room_type": "DOUBLE",
+  "board_type": "BB",
+  "date_from": "2026-07-01",
+  "date_to": "2026-08-31",
+  "availability_count": 10,
+  "currency": 1,
+  "public_price": "120.00",
+  "agency_price": "100.00",
+  "cost_price": "80.00",
+  "note": "Sea view rooms only"
+}
+```
+
 Tour package admin note:
 - `/inventory/admin/tour-packages/` is accessible by admin and `STAFF` role users.
 - Tour package admin payload includes `public_price`, `agency_price`, `cost_price`, optional component selectors (`flights`, `hotels`, `transfers`, `excursions`), and read-only `minimum_cost_floor`.
-- `minimum_cost_floor` is a no-profit baseline calculated from selected components (hotel costs are multiplied by package `nights`) and converted to package currency when needed.
+- `minimum_cost_floor` is calculated from flights, transfers, and excursions only (hotel costs are now per-room in `HotelRoom`).
 - Recommended admin form guidance text:
   - "This tour price cannot be less than minimum cost floor. The floor is cost-only (no profit)."
 
@@ -157,16 +188,23 @@ Tour package admin create payload example:
 }
 ```
 
-Agency pricing behavior (hotels, flights, tour packages, excursions, transfers):
-- Admin endpoints always return `price`/`public_price`, `agency_price`, and `cost_price`.
+Agency pricing behavior (flights, tour packages, excursions, transfers, hotel rooms):
+- Admin endpoints always return all pricing fields (`public_price`, `agency_price`, `cost_price`).
 - Client endpoints return a single `price` field resolved by the authenticated user's role:
-  - `NORMAL` users and unauthenticated users → public price.
-  - `AGENCY`, `STAFF`, and Django admin/staff users → `agency_price` (if set, otherwise falls back to public price).
+  - `NORMAL` users and unauthenticated users → `public_price`.
+  - `AGENCY`, `STAFF`, and Django admin/staff users → `agency_price` (if set, otherwise falls back to `public_price`).
 - `cost_price` is **never** included in client endpoint responses — it is strictly internal to Jovira for margin/profit tracking.
+- **Hotels** no longer have flat pricing — all pricing is on `HotelRoom` records.
 
 ### Client (Public read-only)
 - `GET /api/v1/inventory/client/hotels/`
 - `GET /api/v1/inventory/client/hotels/{id}/`
+  - Response includes nested `rooms` list (without `cost_price`)
+- `GET /api/v1/inventory/client/hotel-rooms/`
+- `GET /api/v1/inventory/client/hotel-rooms/{id}/`
+  - Filter by hotel: `GET /api/v1/inventory/client/hotel-rooms/?hotel=<id>`
+  - **Availability check:** `GET /api/v1/inventory/client/hotel-rooms/{id}/availability/?check_in=YYYY-MM-DD&check_out=YYYY-MM-DD`
+  - Returns `price` resolved by user role (public or agency price), no `cost_price`
 - `GET /api/v1/inventory/client/flights/`
 - `GET /api/v1/inventory/client/flights/{id}/`
 - `GET /api/v1/inventory/client/tour-packages/`
@@ -233,6 +271,66 @@ Reservation and transfer notes:
 - `transfer_service.tour_package` is optional (`null` allowed).
 - A reservation can include only hotel booking, only flight ticket, only transfer, or any combination.
 - `transfer_service.agency_price` is optional; admin can set a separate agency price for transfers.
+
+Hotel booking notes:
+- `HotelBooking.hotel_room` (FK to `HotelRoom`) replaces the old flat `hotel` FK.
+- `board_type` is carried by `HotelRoom` — no separate field on `HotelBooking`.
+- `quantity` specifies how many rooms of this type to reserve.
+- `status`: `PENDING | CONFIRMED | CANCELLED` (default: `PENDING`). Staff save rows as PENDING while building the reservation; a supervisor confirms them.
+- **Availability is tracked by decrementing `HotelRoom.availability_count` atomically on save using `F()` expressions.** No read-then-write — safe for concurrent staff sessions.
+  - Create (non-cancelled) → `availability_count -= quantity`
+  - Cancel → `availability_count += quantity`
+  - Delete → `availability_count += quantity`
+  - Quantity change → `availability_count -= (new_qty - old_qty)`
+  - Room change → old room restored, new room deducted
+- Financial fields: `selling_currency`, `price`, `agency_price`, `cost_currency`, `cost`, `cross_currency_rate`.
+- Tracking fields: `confirm_booking_number`, `agent_confirmation_number`, `hotel_cancellation_number`.
+- Note fields: `internal_note` (staff only), `remarks_for_hotel` (sent to hotel).
+- Serializer validates dates, date-range fit within room window, and available count (excluding CANCELLED bookings).
+
+Availability check endpoint:
+- `GET /api/v1/inventory/admin/hotel-rooms/{id}/availability/?check_in=YYYY-MM-DD&check_out=YYYY-MM-DD`
+- Also available on client: `GET /api/v1/inventory/client/hotel-rooms/{id}/availability/?check_in=...&check_out=...`
+- Response:
+```json
+{
+  "hotel_room": 7,
+  "check_in": "2026-07-15",
+  "check_out": "2026-07-22",
+  "total_count": 10,
+  "confirmed_count": 4,
+  "pending_count": 2,
+  "booked_count": 6,
+  "available_count": 4
+}
+```
+- `available_count` already reflects all active bookings (PENDING + CONFIRMED). CANCELLED bookings do not count.
+- Frontend should display: **"4 available · 2 pending · 4 confirmed"** so staff can see the queue.
+- For multiple unsaved rows in the same form session, subtract local pending quantities on the client side.
+
+Hotel booking create payload example:
+```json
+{
+  "reservation": 12,
+  "hotel_room": 7,
+  "check_in_date": "2026-07-15",
+  "check_out_date": "2026-07-22",
+  "quantity": 2,
+  "status": "PENDING",
+  "selling_currency": 1,
+  "price": "240.00",
+  "agency_price": "200.00",
+  "cost_currency": 1,
+  "cost": "160.00",
+  "cross_currency_rate": "1.0000000000",
+  "confirm_booking_number": "",
+  "agent_confirmation_number": "JOV-H-0099",
+  "hotel_cancellation_number": "",
+  "internal_note": "VIP client, sea view preferred",
+  "remarks_for_hotel": "Late check-in after 22:00",
+  "is_paid": false
+}
+```
 
 ## Finance
 
@@ -320,12 +418,14 @@ export const AGENCIES_ENDPOINTS = {
 
 export const INVENTORY_ENDPOINTS = {
   adminHotels: `${API_V1}/inventory/admin/hotels/`,
+  adminHotelRooms: `${API_V1}/inventory/admin/hotel-rooms/`,
   adminFlights: `${API_V1}/inventory/admin/flights/`,
   adminTourPackages: `${API_V1}/inventory/admin/tour-packages/`,
   adminExcursions: `${API_V1}/inventory/admin/excursions/`,
   adminTransferProviders: `${API_V1}/inventory/admin/transfer-providers/`,
   adminTransfers: `${API_V1}/inventory/admin/transfers/`,
   clientHotels: `${API_V1}/inventory/client/hotels/`,
+  clientHotelRooms: `${API_V1}/inventory/client/hotel-rooms/`,
   clientFlights: `${API_V1}/inventory/client/flights/`,
   clientTourPackages: `${API_V1}/inventory/client/tour-packages/`,
   clientExcursions: `${API_V1}/inventory/client/excursions/`,
@@ -354,6 +454,13 @@ export type AdminTourPackagePayload = {
 // 3) Show warning text above price fields: "No-profit minimum floor: {minimum_cost_floor}".
 // 4) Prevent submit if entered prices are below floor.
 
+// HotelBooking payload fields:
+// hotel_room (FK), check_in_date, check_out_date, quantity
+// selling_currency (FK), price, agency_price
+// cost_currency (FK), cost, cross_currency_rate
+// confirm_booking_number, agent_confirmation_number, hotel_cancellation_number
+// internal_note, remarks_for_hotel, is_paid
+// board_type lives on HotelRoom — not on HotelBooking
 export const RESERVATIONS_ENDPOINTS = {
   adminReservations: `${API_V1}/reservations/admin/reservations/`,
   clientReservations: `${API_V1}/reservations/client/reservations/`,
