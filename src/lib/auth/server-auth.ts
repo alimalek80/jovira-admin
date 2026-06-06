@@ -25,7 +25,7 @@ function decodeTokenPayload(token: string): Record<string, unknown> | null {
   }
 }
 
-function resolveCurrentUserId(accessToken: string): number | null {
+function resolveCurrentUserId(accessToken: string): string | number | null {
   const payload = decodeTokenPayload(accessToken);
 
   const rawId = payload?.user_id ?? payload?.userId ?? payload?.id ?? payload?.sub;
@@ -35,8 +35,18 @@ function resolveCurrentUserId(accessToken: string): number | null {
   }
 
   if (typeof rawId === "string") {
-    const parsed = Number.parseInt(rawId, 10);
-    return Number.isFinite(parsed) ? parsed : null;
+    const trimmedId = rawId.trim();
+
+    if (!trimmedId) {
+      return null;
+    }
+
+    if (/^\d+$/.test(trimmedId)) {
+      const parsed = Number.parseInt(trimmedId, 10);
+      return Number.isFinite(parsed) ? parsed : null;
+    }
+
+    return trimmedId;
   }
 
   return null;
@@ -45,11 +55,11 @@ function resolveCurrentUserId(accessToken: string): number | null {
 export async function fetchCurrentUser(accessToken: string): Promise<AuthenticatedUser | null> {
   const userId = resolveCurrentUserId(accessToken);
 
-  if (!userId) {
+  if (userId === null) {
     return null;
   }
 
-  const response = await fetch(`${ACCOUNTS_ENDPOINTS.adminUsers}${userId}/`, {
+  const response = await fetch(`${ACCOUNTS_ENDPOINTS.adminUsers}${encodeURIComponent(String(userId))}/`, {
     method: "GET",
     headers: {
       Authorization: `Bearer ${stripBearerPrefix(accessToken)}`,

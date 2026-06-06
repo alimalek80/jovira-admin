@@ -39,7 +39,7 @@ export default function TouristForm({
   reservationId: number;
   tourist?: Tourist;
   scope?: "admin" | "client";
-  onSuccess?: () => void;
+  onSuccess?: (tourist: Tourist) => void;
   onCancel?: () => void;
 }) {
   const [values, setValues] = useState<TouristFormValues>(() => INITIAL_VALUES(reservationId, tourist));
@@ -48,19 +48,19 @@ export default function TouristForm({
   const isEditMode = Boolean(tourist?.id);
 
   const createMutation = useCreateTourist(scope, reservationId, {
-    onSuccess: () => {
+    onSuccess: (savedTourist) => {
       setValues(INITIAL_VALUES(reservationId));
       setFieldErrors({});
       setFormError("");
-      onSuccess?.();
+      onSuccess?.(savedTourist);
     },
   });
 
   const updateMutation = useUpdateTourist(scope, reservationId, {
-    onSuccess: () => {
+    onSuccess: (savedTourist) => {
       setFieldErrors({});
       setFormError("");
-      onSuccess?.();
+      onSuccess?.(savedTourist);
     },
   });
 

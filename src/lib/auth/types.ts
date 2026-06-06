@@ -1,7 +1,7 @@
 import { USER_ROLES, type UserRole } from "@/lib/api-endpoints";
 
 export type AuthenticatedUser = {
-  id: number;
+  id: number | string;
   email: string;
   first_name?: string;
   last_name?: string;

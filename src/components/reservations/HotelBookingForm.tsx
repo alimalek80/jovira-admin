@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { AxiosError } from "axios";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
@@ -8,11 +8,14 @@ import axiosInstance from "@/lib/axios";
 import { INVENTORY_ENDPOINTS } from "@/lib/api-endpoints";
 import { mapBackendValidationErrors, type FieldErrorMap } from "@/lib/forms/backend-errors";
 import { createHotelBooking, type HotelBooking, updateHotelBooking } from "@/lib/api/reservation-services";
+import { convertCurrencyAmount } from "@/lib/api/tour-packages";
 
 const hotelBookingSchema = z.object({
   hotel: z.string().min(1, "Hotel is required."),
   check_in_date: z.string().min(1, "Check-in date is required."),
   check_out_date: z.string().min(1, "Check-out date is required."),
+  price: z.string().min(1, "Price is required."),
+  currency: z.string().min(1, "Currency is required."),
   paid: z.boolean(),
   is_paid_cancelation: z.boolean(),
 });
@@ -36,7 +39,26 @@ function normalizeHotelOptions(payload: unknown) {
         (typeof row.name_en === "string" && row.name_en) ||
         id;
 
-      return { id, label };
+      const currency = row.currency;
+      const currencyId =
+        typeof currency === "number" || typeof currency === "string"
+          ? String(currency)
+          : currency && typeof currency === "object" && ("id" in currency)
+            ? String((currency as { id?: unknown }).id ?? "")
+            : "";
+
+      const publicPriceRaw = row.price ?? row.public_price;
+      const agencyPriceRaw = row.agency_price;
+      const publicPrice = Number.parseFloat(String(publicPriceRaw ?? ""));
+      const agencyPrice = Number.parseFloat(String(agencyPriceRaw ?? ""));
+
+      return {
+        id,
+        label,
+        currencyId,
+        publicPrice: Number.isFinite(publicPrice) ? publicPrice : null,
+        agencyPrice: Number.isFinite(agencyPrice) ? agencyPrice : null,
+      };
     })
     .filter((option) => option.id.length > 0);
 }
@@ -47,11 +69,19 @@ function fieldError(errors: FieldErrorMap, key: keyof HotelBookingFormValues) {
 
 export default function HotelBookingForm({
   reservationId,
+  ownerType,
+  currencyOptions,
+  reservationCurrencyId,
+  currencyCodeById,
   booking,
   onSuccess,
   onCancel,
 }: {
   reservationId: number;
+  ownerType: "AGENCY" | "NORMAL";
+  currencyOptions: Array<{ id: string; label: string }>;
+  reservationCurrencyId?: string;
+  currencyCodeById?: Record<string, string>;
   booking?: HotelBooking;
   onSuccess?: () => void;
   onCancel?: () => void;
@@ -61,6 +91,8 @@ export default function HotelBookingForm({
     hotel: booking?.hotelId ?? "",
     check_in_date: booking?.checkInDate?.slice(0, 10) ?? "",
     check_out_date: booking?.checkOutDate?.slice(0, 10) ?? "",
+    price: booking?.price ?? "",
+    currency: booking?.currencyId ?? reservationCurrencyId ?? currencyOptions[0]?.id ?? "",
     paid: booking?.paid ?? false,
     is_paid_cancelation: booking?.isPaidCancelation ?? false,
   });
@@ -77,6 +109,58 @@ export default function HotelBookingForm({
 
   const hotelOptions = hotelsQuery.data ?? [];
 
+  const selectedHotelOption = useMemo(
+    () => hotelOptions.find((option) => option.id === values.hotel) ?? null,
+    [hotelOptions, values.hotel]
+  );
+
+  useEffect(() => {
+    if (!selectedHotelOption) {
+      return;
+    }
+
+    const applyHotelPricing = async () => {
+      const rolePrice =
+        ownerType === "AGENCY"
+          ? selectedHotelOption.agencyPrice ?? selectedHotelOption.publicPrice
+          : selectedHotelOption.publicPrice ?? selectedHotelOption.agencyPrice;
+
+      if (rolePrice === null || !Number.isFinite(rolePrice)) {
+        return;
+      }
+
+      let nextPrice = rolePrice;
+      let nextCurrency = selectedHotelOption.currencyId;
+
+      if (
+        reservationCurrencyId &&
+        nextCurrency &&
+        reservationCurrencyId !== nextCurrency &&
+        currencyCodeById
+      ) {
+        const fromCode = currencyCodeById[nextCurrency];
+        const toCode = currencyCodeById[reservationCurrencyId];
+
+        if (fromCode && toCode) {
+          try {
+            nextPrice = await convertCurrencyAmount({ from: fromCode, to: toCode, amount: nextPrice });
+            nextCurrency = reservationCurrencyId;
+          } catch {
+            // Keep source amount when conversion API is unavailable.
+          }
+        }
+      }
+
+      setValues((previous) => ({
+        ...previous,
+        price: nextPrice.toFixed(2),
+        currency: nextCurrency || previous.currency,
+      }));
+    };
+
+    void applyHotelPricing();
+  }, [selectedHotelOption, ownerType, reservationCurrencyId, currencyCodeById]);
+
   const mutation = useMutation({
     mutationFn: async (payload: HotelBookingFormValues) => {
       const requestPayload = {
@@ -84,6 +168,8 @@ export default function HotelBookingForm({
         hotel: Number(payload.hotel),
         check_in_date: payload.check_in_date,
         check_out_date: payload.check_out_date,
+        price: payload.price,
+        currency: payload.currency ? Number(payload.currency) : null,
         paid: payload.paid,
         is_paid_cancelation: payload.is_paid_cancelation,
         is_paid_cancellation: payload.is_paid_cancelation,
@@ -200,6 +286,43 @@ export default function HotelBookingForm({
         </label>
         <input id="check_out_date" type="date" value={values.check_out_date} onChange={(event) => update("check_out_date", event.target.value)} className={inputClassName} />
         {fieldError(fieldErrors, "check_out_date") ? <p className="mt-1 text-[11px] text-red-600">{fieldErrors.check_out_date}</p> : null}
+      </div>
+
+      <div>
+        <label htmlFor="price" className="mb-1 block text-[11px] font-medium text-slate-600">
+          Price
+        </label>
+        <input
+          id="price"
+          type="number"
+          min="0"
+          step="0.01"
+          value={values.price}
+          onChange={(event) => update("price", event.target.value)}
+          className={inputClassName}
+          placeholder="0.00"
+        />
+        {fieldError(fieldErrors, "price") ? <p className="mt-1 text-[11px] text-red-600">{fieldErrors.price}</p> : null}
+      </div>
+
+      <div>
+        <label htmlFor="currency" className="mb-1 block text-[11px] font-medium text-slate-600">
+          Currency
+        </label>
+        <select
+          id="currency"
+          value={values.currency}
+          onChange={(event) => update("currency", event.target.value)}
+          className={inputClassName}
+        >
+          <option value="">Select currency</option>
+          {currencyOptions.map((option) => (
+            <option key={option.id} value={option.id}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+        {fieldError(fieldErrors, "currency") ? <p className="mt-1 text-[11px] text-red-600">{fieldErrors.currency}</p> : null}
       </div>
 
       <label className="flex items-center gap-2 rounded-md border border-slate-200 px-3 py-2 text-xs font-medium text-slate-700">

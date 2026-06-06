@@ -97,6 +97,7 @@ Admin approval:
   - **Hotel fields:**
     - `name`, `city`, `stars`, `currency`
     - `price` (public price), `agency_price` (optional; agency/staff users see this instead)
+    - `cost_price` (optional; internal procurement cost paid by Jovira — **admin only, never returned to client endpoints**)
     - `description` (multi-language)
     - `main_image` (image upload)
     - `features` (list of feature IDs)
@@ -110,25 +111,58 @@ Admin approval:
   - **Payload fields:** `hotel` (integer FK, required), `image` (file, required), `alt_text` (string, optional), `order` (integer, optional)
 - `GET, POST /api/v1/inventory/admin/flights/`
 - `GET, PUT, PATCH, DELETE /api/v1/inventory/admin/flights/{id}/`
-  - **Flight fields:** `flight_number`, `airline`, `origin`, `destination`, `departure_time`, `arrival_time`, `currency`, `price`, `agency_price`
+  - **Flight fields:** `flight_number`, `airline`, `origin`, `destination`, `departure_time`, `arrival_time`, `currency`, `price`, `agency_price`, `cost_price` (internal cost — admin only)
 - `GET, POST /api/v1/inventory/admin/tour-packages/`
 - `GET, PUT, PATCH, DELETE /api/v1/inventory/admin/tour-packages/{id}/`
+  - **Tour package fields (admin):**
+    - Core: `name`, `destination`, `days`, `nights`, `currency`
+    - Prices: `public_price`, `agency_price`, `cost_price`
+    - Optional component selectors (IDs): `flights`, `hotels`, `transfers`, `excursions`
+    - Read-only guidance: `minimum_cost_floor`
+  - **Validation rules:**
+    - `cost_price`, `agency_price`, and `public_price` cannot be below `minimum_cost_floor`.
+    - `public_price` cannot be below `agency_price`.
+    - Component costs are auto-converted to package currency for floor calculation.
 - `GET, POST /api/v1/inventory/admin/excursions/`
 - `GET, PUT, PATCH, DELETE /api/v1/inventory/admin/excursions/{id}/`
+  - **Excursion fields:** `name`, `city`, `duration_hours`, `currency`, `public_price`, `agency_price`, `cost_price` (internal cost — admin only)
 - `GET, POST /api/v1/inventory/admin/transfer-providers/`
 - `GET, PUT, PATCH, DELETE /api/v1/inventory/admin/transfer-providers/{id}/`
 - `GET, POST /api/v1/inventory/admin/transfers/`
 - `GET, PUT, PATCH, DELETE /api/v1/inventory/admin/transfers/{id}/`
+  - **Transfer fields:** `provider` (FK), `name`, `from_location`, `to_location`, `vehicle_type`, `capacity`, `currency`, `public_price`, `agency_price`, `cost_price` (internal cost — admin only)
 
 Tour package admin note:
 - `/inventory/admin/tour-packages/` is accessible by admin and `STAFF` role users.
-- Tour package admin payload includes both `public_price` and `agency_price`.
+- Tour package admin payload includes `public_price`, `agency_price`, `cost_price`, optional component selectors (`flights`, `hotels`, `transfers`, `excursions`), and read-only `minimum_cost_floor`.
+- `minimum_cost_floor` is a no-profit baseline calculated from selected components (hotel costs are multiplied by package `nights`) and converted to package currency when needed.
+- Recommended admin form guidance text:
+  - "This tour price cannot be less than minimum cost floor. The floor is cost-only (no profit)."
 
-Agency pricing behavior (hotels, flights, tour packages):
-- Admin endpoints always return both `price`/`public_price` and `agency_price`.
+Tour package admin create payload example:
+```json
+{
+  "name": "Istanbul Premium 3N",
+  "destination": "Istanbul",
+  "days": 4,
+  "nights": 3,
+  "currency": 1,
+  "flights": [3, 8],
+  "hotels": [2],
+  "transfers": [4],
+  "excursions": [1, 5],
+  "cost_price": "9200.00",
+  "agency_price": "10200.00",
+  "public_price": "11800.00"
+}
+```
+
+Agency pricing behavior (hotels, flights, tour packages, excursions, transfers):
+- Admin endpoints always return `price`/`public_price`, `agency_price`, and `cost_price`.
 - Client endpoints return a single `price` field resolved by the authenticated user's role:
   - `NORMAL` users and unauthenticated users → public price.
   - `AGENCY`, `STAFF`, and Django admin/staff users → `agency_price` (if set, otherwise falls back to public price).
+- `cost_price` is **never** included in client endpoint responses — it is strictly internal to Jovira for margin/profit tracking.
 
 ### Client (Public read-only)
 - `GET /api/v1/inventory/client/hotels/`
@@ -152,6 +186,7 @@ Tour package client pricing behavior:
 - Public and `NORMAL` users receive public price in `price`.
 - `AGENCY`, `STAFF`, and Django admin/staff users receive `agency_price` in `price`.
 - Applies to hotels, flights, and tour packages.
+- Client tour package responses do not expose `minimum_cost_floor` or `cost_price`.
 
 ## Reservations
 
@@ -215,9 +250,21 @@ Reservation and transfer notes:
   - `GET /api/v1/finance/client/currencies/{id}/`
   - `GET /api/v1/finance/client/exchange-rates/`
   - `GET /api/v1/finance/client/exchange-rates/{id}/`
+  - `GET /api/v1/finance/client/convert/?from=USD&to=TRY&amount=100`
 - Authenticated read-only:
   - `GET /api/v1/finance/client/invoices/`
   - `GET /api/v1/finance/client/invoices/{id}/`
+
+Currency convert response example:
+```json
+{
+  "from": "USD",
+  "to": "TRY",
+  "amount": "100",
+  "converted_amount": "3910.00",
+  "effective_rate": "39.1000000000"
+}
+```
 
 ## Public Website Content
 
@@ -284,6 +331,28 @@ export const INVENTORY_ENDPOINTS = {
   clientExcursions: `${API_V1}/inventory/client/excursions/`,
   clientTransfers: `${API_V1}/inventory/client/transfers/`,
 };
+
+// Suggested admin form payload model for tour package create/update
+export type AdminTourPackagePayload = {
+  name: string;
+  destination: string;
+  days: number;
+  nights: number;
+  currency: number;
+  flights?: number[];
+  hotels?: number[];
+  transfers?: number[];
+  excursions?: number[];
+  cost_price?: string;
+  agency_price?: string;
+  public_price?: string;
+};
+
+// Suggested admin UI guidance flow:
+// 1) Admin selects optional components.
+// 2) UI reads `minimum_cost_floor` from API response.
+// 3) Show warning text above price fields: "No-profit minimum floor: {minimum_cost_floor}".
+// 4) Prevent submit if entered prices are below floor.
 
 export const RESERVATIONS_ENDPOINTS = {
   adminReservations: `${API_V1}/reservations/admin/reservations/`,

@@ -2,15 +2,19 @@
 
 import { useMemo, useState } from "react";
 import TourPackageForm from "@/components/tour-packages/TourPackageForm";
-import { useAdminTourPackages, useCreateTourPackage, useUpdateTourPackage } from "@/hooks/use-tour-packages";
+import {
+  useAdminTourPackageDetail,
+  useAdminTourPackages,
+  useCreateTourPackage,
+  useUpdateTourPackage,
+} from "@/hooks/use-tour-packages";
 import { toTourPackageFormValues, toTourPackagePayload, type TourPackageFormValues } from "@/lib/validation/tour-package";
-import type { TourPackageResponse } from "@/lib/api/tour-packages";
+import type { AdminTourPackage } from "@/lib/api/tour-packages";
 
 type ModalState = {
   open: boolean;
   mode: "create" | "edit";
   editingId: number | null;
-  initialValues: TourPackageFormValues;
 };
 
 function statusLabel(days: number, nights: number) {
@@ -26,27 +30,36 @@ export default function TourPackagesPage() {
     open: false,
     mode: "create",
     editingId: null,
-    initialValues: toTourPackageFormValues(),
+  });
+
+  const detailQuery = useAdminTourPackageDetail(modal.mode === "edit" ? modal.editingId : null, {
+    enabled: modal.open && modal.mode === "edit" && typeof modal.editingId === "number",
   });
 
   const rows = useMemo(() => packagesQuery.data ?? [], [packagesQuery.data]);
   const isSubmitting = createMutation.isPending || updateMutation.isPending;
+  const formInitialValues = useMemo(
+    () => (modal.mode === "edit" ? toTourPackageFormValues(detailQuery.data) : toTourPackageFormValues()),
+    [detailQuery.data, modal.mode]
+  );
+  const minimumCostFloor = useMemo(
+    () => (modal.mode === "edit" ? detailQuery.data?.minimum_cost_floor ?? "0" : "0"),
+    [detailQuery.data?.minimum_cost_floor, modal.mode]
+  );
 
   const openCreateModal = () => {
     setModal({
       open: true,
       mode: "create",
       editingId: null,
-      initialValues: toTourPackageFormValues(),
     });
   };
 
-  const openEditModal = (item: TourPackageResponse) => {
+  const openEditModal = (item: AdminTourPackage) => {
     setModal({
       open: true,
       mode: "edit",
       editingId: item.id,
-      initialValues: toTourPackageFormValues(item),
     });
   };
 
@@ -145,8 +158,8 @@ export default function TourPackagesPage() {
       </div>
 
       {modal.open ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4">
-          <div className="w-full max-w-2xl rounded-xl border border-slate-200 bg-white shadow-xl">
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-950/40 p-4 sm:items-center">
+          <div className="my-auto flex max-h-[90vh] w-full max-w-2xl flex-col rounded-xl border border-slate-200 bg-white shadow-xl">
             <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
               <h3 className="text-sm font-semibold text-slate-900">
                 {modal.mode === "edit" ? "Edit Tour Package" : "Create Tour Package"}
@@ -160,13 +173,22 @@ export default function TourPackagesPage() {
               </button>
             </div>
 
-            <div className="p-4">
-              <TourPackageForm
-                initialValues={modal.initialValues}
-                isSubmitting={isSubmitting}
-                onCancel={() => setModal((previous) => ({ ...previous, open: false }))}
-                onSubmit={handleSubmit}
-              />
+            <div className="min-h-0 overflow-y-auto p-4">
+              {modal.mode === "edit" && detailQuery.isLoading ? (
+                <p className="text-xs text-slate-500">Loading package details...</p>
+              ) : modal.mode === "edit" && detailQuery.isError ? (
+                <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs font-medium text-red-700">
+                  Unable to load selected package details.
+                </div>
+              ) : (
+                <TourPackageForm
+                  initialValues={formInitialValues}
+                  minimumCostFloor={minimumCostFloor}
+                  isSubmitting={isSubmitting}
+                  onCancel={() => setModal((previous) => ({ ...previous, open: false }))}
+                  onSubmit={handleSubmit}
+                />
+              )}
             </div>
           </div>
         </div>

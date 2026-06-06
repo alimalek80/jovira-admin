@@ -12,6 +12,8 @@ export type HotelBooking = {
   checkOutDate: string | null;
   paid: boolean;
   isPaidCancelation: boolean;
+  price?: string;
+  currencyId?: string;
 };
 
 export type HotelBookingInput = {
@@ -23,6 +25,8 @@ export type HotelBookingInput = {
   is_paid?: boolean;
   is_paid_cancelation?: boolean;
   is_paid_cancellation?: boolean;
+  price?: string;
+  currency?: number | null;
 };
 
 export type TransferService = {
@@ -262,6 +266,12 @@ function normalizeHotelBooking(row: unknown, reservationId?: number): HotelBooki
     isPaidCancelation: toBoolean(
       value.is_paid_cancelation ?? value.is_paid_cancellation ?? value.paid_cancelation ?? value.paid_cancellation
     ),
+    price: typeof value.price === "string" ? value.price : typeof value.price === "number" ? String(value.price) : undefined,
+    currencyId: value.currency != null ? String(
+      typeof value.currency === "object" && value.currency !== null
+        ? (value.currency as Record<string, unknown>).id ?? ""
+        : value.currency
+    ) : undefined,
   };
 }
 
@@ -616,4 +626,166 @@ export async function updateExcursionService(id: number, payload: Partial<Excurs
 
 export async function deleteExcursionService(id: number): Promise<void> {
   await axiosInstance.delete(`${RESERVATIONS_ENDPOINTS.adminExcursionServices}${id}/`);
+}
+
+// ─── FlightTicket ─────────────────────────────────────────────────────────────
+
+export type FlightTicket = {
+  id: number;
+  reservation: number;
+  flightId: string;
+  flightLabel: string;
+  touristId: string;
+  touristName: string;
+  departureDate: string | null;
+  arrivalDate: string | null;
+  ticketNumber: string;
+  price: string;
+  currencyId: string;
+  paid: boolean;
+};
+
+export type FlightTicketInput = {
+  reservation: number;
+  flight?: number | null;
+  tourist?: number | null;
+  departure_date?: string | null;
+  arrival_date?: string | null;
+  ticket_number?: string;
+  price?: string;
+  currency?: number | null;
+  paid?: boolean;
+  // Compatibility aliases used by some backend serializers
+  departing_date?: string | null;
+  arriving_date?: string | null;
+  pnr?: string;
+  is_paid?: boolean;
+};
+
+function normalizeFlightTicket(row: unknown, reservationId?: number): FlightTicket | null {
+  if (!row || typeof row !== "object") {
+    return null;
+  }
+
+  const value = row as Row;
+  const id = getId(value.id);
+  const resolvedReservation = getId(value.reservation) ?? reservationId ?? null;
+  if (!id || !resolvedReservation) {
+    return null;
+  }
+
+  const flight = relationLabel(value.flight, "-");
+  const tourist = relationLabel(value.tourist, "");
+
+  const touristNameParts: string[] = [];
+  if (value.tourist && typeof value.tourist === "object") {
+    const t = value.tourist as Row;
+    const firstName = typeof t.first_name === "string" ? t.first_name.trim() : "";
+    const lastName = typeof t.last_name === "string" ? t.last_name.trim() : "";
+    if (firstName || lastName) {
+      touristNameParts.push(`${firstName} ${lastName}`.trim());
+    }
+  }
+  const touristName = touristNameParts[0] ?? tourist.label;
+
+  const flightNumber =
+    value.flight && typeof value.flight === "object"
+      ? String((value.flight as Row).flight_number ?? (value.flight as Row).name ?? flight.label)
+      : flight.label;
+
+  return {
+    id,
+    reservation: resolvedReservation,
+    flightId: flight.id,
+    flightLabel: flightNumber || flight.label,
+    touristId: tourist.id,
+    touristName,
+    departureDate:
+      typeof value.departure_date === "string"
+        ? value.departure_date
+        : typeof value.departing_date === "string"
+          ? value.departing_date
+          : typeof value.departure_time === "string"
+            ? value.departure_time
+          : null,
+    arrivalDate:
+      typeof value.arrival_date === "string"
+        ? value.arrival_date
+        : typeof value.arriving_date === "string"
+          ? value.arriving_date
+          : typeof value.arrival_time === "string"
+            ? value.arrival_time
+          : null,
+    ticketNumber: String(value.ticket_number ?? value.pnr ?? value.ticket_no ?? ""),
+    price: String(value.price ?? value.agency_price ?? value.public_price ?? value.ticket_price ?? "0.00"),
+    currencyId: String(getId(value.currency) ?? relationLabel(value.currency).id ?? ""),
+    paid: toBoolean(value.paid ?? value.is_paid),
+  };
+}
+
+function resolveFlightTicketsEndpoint() {
+  return RESERVATIONS_ENDPOINTS.adminFlightTickets;
+}
+
+export async function listFlightTickets(reservationId: number): Promise<FlightTicket[]> {
+  return listByReservation(
+    resolveFlightTicketsEndpoint(),
+    reservationId,
+    normalizeFlightTicket,
+    RESERVATIONS_ENDPOINTS.adminReservations,
+    "flight_tickets"
+  );
+}
+
+export async function createFlightTicket(payload: FlightTicketInput): Promise<FlightTicket> {
+  const response = await axiosInstance.post(resolveFlightTicketsEndpoint(), payload);
+  let normalized = normalizeFlightTicket(response.data, payload.reservation);
+  if (!normalized) {
+    throw new Error("Unable to normalize flight ticket response.");
+  }
+
+  const needsDateFix = Boolean(payload.departure_date || payload.arrival_date) && (!normalized.departureDate || !normalized.arrivalDate);
+  const needsTicketFix = Boolean(payload.ticket_number) && !normalized.ticketNumber;
+  const needsPaidFix = typeof payload.paid === "boolean" && normalized.paid !== payload.paid;
+  const needsPriceFix = Boolean(payload.price) && (normalized.price === "0" || normalized.price === "0.00" || normalized.price === "");
+
+  if (needsDateFix || needsTicketFix || needsPaidFix || needsPriceFix) {
+    const compatibilityPatch: FlightTicketInput = {
+      reservation: payload.reservation,
+      departing_date: payload.departure_date ?? null,
+      arriving_date: payload.arrival_date ?? null,
+      pnr: payload.ticket_number,
+      price: payload.price,
+      currency: payload.currency,
+      is_paid: payload.paid,
+    };
+
+    try {
+      const patchResponse = await axiosInstance.patch(
+        `${resolveFlightTicketsEndpoint()}${normalized.id}/`,
+        compatibilityPatch
+      );
+      normalized = normalizeFlightTicket(patchResponse.data, payload.reservation) ?? normalized;
+    } catch {
+      // Keep created ticket even if compatibility patch is rejected.
+    }
+  }
+
+  return normalized;
+}
+
+export async function updateFlightTicket(
+  ticketId: number,
+  payload: Partial<FlightTicketInput> & { reservation: number }
+): Promise<FlightTicket> {
+  const response = await axiosInstance.patch(`${resolveFlightTicketsEndpoint()}${ticketId}/`, payload);
+  const normalized = normalizeFlightTicket(response.data, payload.reservation);
+  if (!normalized) {
+    throw new Error("Unable to normalize flight ticket response.");
+  }
+  return normalized;
+}
+
+export async function deleteFlightTicket(ticketId: number): Promise<void> {
+  await axiosInstance.delete(`${resolveFlightTicketsEndpoint()}${ticketId}/`);
 }

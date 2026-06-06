@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import TouristForm from "@/components/reservations/TouristForm";
 import { useDeleteTourist, useTourists } from "@/hooks/use-tourists";
 import type { Tourist } from "@/lib/api/tourists";
@@ -8,6 +9,7 @@ import type { Tourist } from "@/lib/api/tourists";
 type TouristManagerProps = {
   reservationId: number | null;
   scope?: "admin" | "client";
+  onTouristAdded?: (tourist: Tourist) => void;
 };
 
 function toDateInputValue(value: string | null | undefined): string {
@@ -25,7 +27,8 @@ function toDateInputValue(value: string | null | undefined): string {
   return normalized.slice(0, 10);
 }
 
-export default function TouristManager({ reservationId, scope = "admin" }: TouristManagerProps) {
+export default function TouristManager({ reservationId, scope = "admin", onTouristAdded }: TouristManagerProps) {
+  const queryClient = useQueryClient();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingTourist, setEditingTourist] = useState<Tourist | null>(null);
   const [selectedTouristId, setSelectedTouristId] = useState<number | null>(null);
@@ -37,6 +40,9 @@ export default function TouristManager({ reservationId, scope = "admin" }: Touri
   const deleteMutation = useDeleteTourist(scope, reservationId ?? undefined, {
     onSuccess: () => {
       setToastMessage("Tourist deleted successfully.");
+      if (typeof reservationId === "number" && reservationId > 0) {
+        queryClient.invalidateQueries({ queryKey: ["reservation-service", "flight-ticket", reservationId] });
+      }
     },
   });
 
@@ -264,9 +270,12 @@ export default function TouristManager({ reservationId, scope = "admin" }: Touri
                     setIsModalOpen(false);
                     setEditingTourist(null);
                   }}
-                  onSuccess={() => {
+                  onSuccess={(savedTourist) => {
                     setIsModalOpen(false);
                     setToastMessage(editingTourist ? "Tourist updated successfully." : "Tourist added successfully.");
+                    if (!editingTourist) {
+                      onTouristAdded?.(savedTourist);
+                    }
                     setEditingTourist(null);
                   }}
                 />

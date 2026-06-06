@@ -1,20 +1,20 @@
 import { z } from "zod";
-import type { TourPackagePayload } from "@/lib/api/tour-packages";
+import type { FieldErrorMap } from "@/lib/forms/backend-errors";
+import type { AdminTourPackage, TourPackagePayload } from "@/lib/api/tour-packages";
 
 export const tourPackagePayloadSchema = z.object({
   name: z.string().trim().min(1, "Name is required."),
   destination: z.string().trim().min(1, "Destination is required."),
   days: z.number().int().min(1, "Days must be at least 1."),
   nights: z.number().int().min(0, "Nights must be 0 or more."),
-  public_price: z.string().trim().min(1, "Public price is required."),
+  currency: z.number().int().min(1, "Currency is required."),
+  flights: z.array(z.number().int().min(1)),
+  hotels: z.array(z.number().int().min(1)),
+  transfers: z.array(z.number().int().min(1)),
+  excursions: z.array(z.number().int().min(1)),
+  cost_price: z.string().trim().min(1, "Cost price is required."),
   agency_price: z.string().trim().min(1, "Agency price is required."),
-  cost_price: z.string().nullable().optional(),
-  name_en: z.string().trim().optional().or(z.literal("")),
-  name_tr: z.string().trim().optional().or(z.literal("")),
-  name_ru: z.string().trim().optional().or(z.literal("")),
-  destination_en: z.string().trim().optional().or(z.literal("")),
-  destination_tr: z.string().trim().optional().or(z.literal("")),
-  destination_ru: z.string().trim().optional().or(z.literal("")),
+  public_price: z.string().trim().min(1, "Public price is required."),
 });
 
 export type TourPackageFormValues = {
@@ -22,16 +22,26 @@ export type TourPackageFormValues = {
   destination: string;
   days: string;
   nights: string;
-  public_price: string;
-  agency_price: string;
+  currency: string;
+  flights: string[];
+  hotels: string[];
+  transfers: string[];
+  excursions: string[];
   cost_price: string;
-  name_en: string;
-  name_tr: string;
-  name_ru: string;
-  destination_en: string;
-  destination_tr: string;
-  destination_ru: string;
+  agency_price: string;
+  public_price: string;
 };
+
+function toNumberList(values: string[]) {
+  return values
+    .map((value) => Number.parseInt(value, 10))
+    .filter((value) => Number.isFinite(value) && value > 0);
+}
+
+function toNumericValue(raw: string) {
+  const parsed = Number.parseFloat(raw.trim());
+  return Number.isFinite(parsed) ? parsed : Number.NaN;
+}
 
 export function toTourPackagePayload(values: TourPackageFormValues): TourPackagePayload {
   const parsedDays = Number.parseInt(values.days, 10);
@@ -40,37 +50,67 @@ export function toTourPackagePayload(values: TourPackageFormValues): TourPackage
   const parsedNights = Number.parseInt(values.nights, 10);
   const safeNights = Number.isNaN(parsedNights) ? Math.max(safeDays - 1, 0) : parsedNights;
 
+  const parsedCurrency = Number.parseInt(values.currency, 10);
+  const safeCurrency = Number.isNaN(parsedCurrency) ? 0 : parsedCurrency;
+
   return {
     name: values.name.trim(),
     destination: values.destination.trim(),
     days: safeDays,
     nights: safeNights,
-    public_price: values.public_price.trim(),
+    currency: safeCurrency,
+    flights: toNumberList(values.flights),
+    hotels: toNumberList(values.hotels),
+    transfers: toNumberList(values.transfers),
+    excursions: toNumberList(values.excursions),
+    cost_price: values.cost_price.trim(),
     agency_price: values.agency_price.trim(),
-    cost_price: values.cost_price.trim() || null,
-    name_en: values.name_en.trim(),
-    name_tr: values.name_tr.trim(),
-    name_ru: values.name_ru.trim(),
-    destination_en: values.destination_en.trim(),
-    destination_tr: values.destination_tr.trim(),
-    destination_ru: values.destination_ru.trim(),
+    public_price: values.public_price.trim(),
   };
 }
 
-export function toTourPackageFormValues(payload?: Partial<TourPackagePayload>): TourPackageFormValues {
+export function toTourPackageFormValues(payload?: Partial<AdminTourPackage>): TourPackageFormValues {
   return {
     name: payload?.name ?? "",
     destination: payload?.destination ?? "",
     days: typeof payload?.days === "number" ? String(payload.days) : "",
     nights: typeof payload?.nights === "number" ? String(payload.nights) : "",
-    public_price: payload?.public_price ?? "",
-    agency_price: payload?.agency_price ?? "",
+    currency: typeof payload?.currency === "number" ? String(payload.currency) : "",
+    flights: Array.isArray(payload?.flights) ? payload.flights.map((id) => String(id)) : [],
+    hotels: Array.isArray(payload?.hotels) ? payload.hotels.map((id) => String(id)) : [],
+    transfers: Array.isArray(payload?.transfers) ? payload.transfers.map((id) => String(id)) : [],
+    excursions: Array.isArray(payload?.excursions) ? payload.excursions.map((id) => String(id)) : [],
     cost_price: payload?.cost_price ?? "",
-    name_en: payload?.name_en ?? "",
-    name_tr: payload?.name_tr ?? "",
-    name_ru: payload?.name_ru ?? "",
-    destination_en: payload?.destination_en ?? "",
-    destination_tr: payload?.destination_tr ?? "",
-    destination_ru: payload?.destination_ru ?? "",
+    agency_price: payload?.agency_price ?? "",
+    public_price: payload?.public_price ?? "",
   };
+}
+
+export function validateTourPackagePricing(values: TourPackageFormValues, minimumCostFloor: string): FieldErrorMap {
+  const floor = toNumericValue(minimumCostFloor || "0");
+  const normalizedFloor = Number.isFinite(floor) ? floor : 0;
+
+  const cost = toNumericValue(values.cost_price);
+  const agency = toNumericValue(values.agency_price);
+  const pub = toNumericValue(values.public_price);
+
+  const errors: FieldErrorMap = {};
+
+  if (Number.isFinite(cost) && cost < normalizedFloor) {
+    errors.cost_price = `Cost price must be >= minimum cost floor (${normalizedFloor}).`;
+  }
+
+  if (Number.isFinite(agency) && agency < normalizedFloor) {
+    errors.agency_price = `Agency price must be >= minimum cost floor (${normalizedFloor}).`;
+  }
+
+  if (Number.isFinite(pub) && pub < normalizedFloor) {
+    errors.public_price = `Public price must be >= minimum cost floor (${normalizedFloor}).`;
+  }
+
+  if (Number.isFinite(pub) && Number.isFinite(agency) && pub < agency) {
+    errors.public_price = "Public price must be greater than or equal to agency price.";
+  }
+
+  return errors;
 }

@@ -46,6 +46,7 @@ export const FINANCE_ENDPOINTS = {
   adminCurrencies: `${API_V1}/finance/admin/currencies/`,
   adminExchangeRates: `${API_V1}/finance/admin/exchange-rates/`,
   adminInvoices: `${API_V1}/finance/admin/invoices/`,
+  clientConvert: `${API_V1}/finance/client/convert/`,
 };
 
 export const PUBLIC_SITE_ENDPOINTS = {

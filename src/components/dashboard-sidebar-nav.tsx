@@ -74,26 +74,40 @@ function isItemActive(pathname: string, href: string): boolean {
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
-export default function DashboardSidebarNav() {
+type DashboardSidebarNavProps = {
+  collapsed?: boolean;
+};
+
+export default function DashboardSidebarNav({ collapsed = false }: DashboardSidebarNavProps) {
   const pathname = usePathname();
 
   return (
-    <nav className="px-3 py-4 flex flex-col gap-5 overflow-y-auto">
-      {navigationGroups.map((group) => (
-        <div key={group.label}>
-          <p className="mb-1.5 px-3 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">
-            {group.label}
-          </p>
+    <nav className="min-h-0 flex-1 overflow-y-auto py-4 px-2">
+      {navigationGroups.map((group, groupIndex) => (
+        <div key={group.label} className="mb-4 last:mb-0">
+          {collapsed ? (
+            groupIndex > 0 ? (
+              <div className="mx-2 mb-3 h-px bg-slate-800" />
+            ) : null
+          ) : (
+            <p className="mb-1.5 px-3 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+              {group.label}
+            </p>
+          )}
           <ul className="space-y-0.5">
             {group.items.map((item) => {
               const active = isItemActive(pathname, item.href);
               const Icon = item.icon;
 
               return (
-                <li key={item.href}>
+                <li key={item.href} className="group relative">
                   <Link
                     href={item.href}
-                    className={`flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium transition ${
+                    className={`flex items-center rounded-lg text-sm font-medium transition ${
+                      collapsed
+                        ? "justify-center px-2 py-2.5"
+                        : "gap-2.5 px-3 py-2"
+                    } ${
                       active
                         ? "bg-slate-800 text-white"
                         : "text-slate-400 hover:bg-slate-800/70 hover:text-slate-100"
@@ -101,10 +115,22 @@ export default function DashboardSidebarNav() {
                   >
                     <Icon
                       size={15}
-                      className={active ? "text-white" : "text-slate-500"}
+                      className={active ? "shrink-0 text-white" : "shrink-0 text-slate-500 group-hover:text-slate-100"}
                     />
-                    {item.label}
+                    {!collapsed && item.label}
                   </Link>
+
+                  {/* Tooltip — only visible when sidebar is collapsed */}
+                  {collapsed && (
+                    <div
+                      aria-hidden="true"
+                      className="pointer-events-none absolute left-full top-1/2 z-50 ml-3 -translate-y-1/2 whitespace-nowrap rounded-md bg-slate-700 px-2.5 py-1.5 text-xs font-medium text-white opacity-0 shadow-xl ring-1 ring-white/10 transition-opacity duration-150 group-hover:opacity-100"
+                    >
+                      {item.label}
+                      {/* Arrow */}
+                      <span className="absolute right-full top-1/2 -translate-y-1/2 border-4 border-transparent border-r-slate-700" />
+                    </div>
+                  )}
                 </li>
               );
             })}

@@ -13,6 +13,7 @@ import {
   HotelBookingManager,
   TransferServiceManager,
   ExcursionServiceManager,
+  FlightTicketManager,
   type ReservationServiceManagerHandle,
 } from "../../../components/reservations/ReservationServiceManagers";
 import TouristManager from "@/components/reservations/TouristManager";
@@ -26,6 +27,17 @@ import {
   type ReservationFormState,
   type ReservationOwnerType,
 } from "@/lib/reservations/admin-reservations";
+import { convertCurrencyAmount, getAdminTourPackage } from "@/lib/api/tour-packages";
+import {
+  createHotelBooking,
+  createTransferService,
+  createFlightTicket,
+  listHotelBookings,
+  listTransferServices,
+  listFlightTickets,
+  updateHotelBooking,
+  updateFlightTicket,
+} from "@/lib/api/reservation-services";
 
 
 type ReservationRecord = {
@@ -460,6 +472,571 @@ function formatDateInputValue(value: unknown): string {
   return normalized.trim();
 }
 
+function addDays(dateIso: string, daysToAdd: number) {
+  const baseDate = new Date(`${dateIso}T00:00:00`);
+  if (Number.isNaN(baseDate.getTime())) {
+    return dateIso;
+  }
+
+  baseDate.setDate(baseDate.getDate() + Math.max(daysToAdd, 0));
+  return baseDate.toISOString().slice(0, 10);
+}
+
+type FlightInventoryDetail = {
+  id: number;
+  flightNumber: string;
+  airline: string;
+  origin: string;
+  destination: string;
+  departureAtRaw: string;
+  departureDate: string;
+  arrivalDate: string;
+  publicPrice: string;
+  agencyPrice: string;
+  currency: number | null;
+  currencyCode: string;
+};
+
+function normalizeCurrencyCode(value: unknown): string {
+  return typeof value === "string" ? value.trim().toUpperCase() : "";
+}
+
+function findCurrencyIdByCode(code: string, currencyCodeById?: Record<string, string>): number | null {
+  if (!currencyCodeById || !code) {
+    return null;
+  }
+
+  for (const [id, mappedCode] of Object.entries(currencyCodeById)) {
+    if (mappedCode === code) {
+      const parsed = Number.parseInt(id, 10);
+      return Number.isFinite(parsed) ? parsed : null;
+    }
+  }
+
+  return null;
+}
+
+function resolveCurrencyNumericId(value: unknown, currencyCodeById?: Record<string, string>): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return null;
+    }
+
+    const parsed = Number.parseInt(trimmed, 10);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+
+    return findCurrencyIdByCode(trimmed.toUpperCase(), currencyCodeById);
+  }
+
+  return null;
+}
+
+function toFlightInventoryDetail(payload: unknown, fallbackId: number): FlightInventoryDetail {
+  const row = payload && typeof payload === "object" ? (payload as Record<string, unknown>) : {};
+  const departureDate = formatDateInputValue(row.departure_time);
+  const arrivalDate = formatDateInputValue(row.arrival_time);
+  const currencyRaw = row.currency;
+  const parsedCurrency =
+    typeof currencyRaw === "number"
+      ? currencyRaw
+      : typeof currencyRaw === "string"
+        ? Number.parseInt(currencyRaw, 10)
+        : currencyRaw && typeof currencyRaw === "object" && typeof (currencyRaw as { id?: unknown }).id !== "undefined"
+          ? Number.parseInt(String((currencyRaw as { id?: unknown }).id), 10)
+          : Number.NaN;
+
+  const currencyCode =
+    typeof currencyRaw === "string"
+      ? normalizeCurrencyCode(currencyRaw)
+      : currencyRaw && typeof currencyRaw === "object"
+        ? normalizeCurrencyCode(
+            (currencyRaw as Record<string, unknown>).code ??
+              (currencyRaw as Record<string, unknown>).currency_code ??
+              (currencyRaw as Record<string, unknown>).iso_code
+          )
+        : "";
+
+  return {
+    id: fallbackId,
+    flightNumber: String(row.flight_number ?? fallbackId),
+    airline: String(row.airline ?? ""),
+    origin: String(row.origin ?? ""),
+    destination: String(row.destination ?? ""),
+    departureAtRaw: typeof row.departure_time === "string" ? row.departure_time : "",
+    departureDate,
+    arrivalDate,
+    publicPrice: String(row.public_price ?? row.price ?? "0"),
+    agencyPrice: String(row.agency_price ?? row.public_price ?? row.price ?? "0"),
+    currency: Number.isFinite(parsedCurrency) ? parsedCurrency : null,
+    currencyCode,
+  };
+}
+
+function resolveFlightPriceForOwner(
+  flight: FlightInventoryDetail,
+  ownerType: ReservationOwnerType
+): string {
+  if (ownerType === "AGENCY") {
+    return flight.agencyPrice || flight.publicPrice || "0";
+  }
+
+  return flight.publicPrice || flight.agencyPrice || "0";
+}
+
+async function convertToReservationCurrency(args: {
+  amount: string;
+  sourceCurrencyId: number | null;
+  sourceCurrencyCode?: string;
+  reservationCurrencyId?: string;
+  currencyCodeById?: Record<string, string>;
+}): Promise<{ amount: string; currencyId: number | null }> {
+  const parsedAmount = Number.parseFloat(args.amount);
+  if (!Number.isFinite(parsedAmount)) {
+    return {
+      amount: "0.00",
+      currencyId: args.sourceCurrencyId,
+    };
+  }
+
+  const sourceCurrencyId = args.sourceCurrencyId;
+  const targetCurrencyId = resolveCurrencyNumericId(args.reservationCurrencyId, args.currencyCodeById);
+  const sourceCode =
+    normalizeCurrencyCode(args.sourceCurrencyCode) ||
+    (sourceCurrencyId ? args.currencyCodeById?.[String(sourceCurrencyId)] ?? "" : "");
+  const targetCode =
+    (targetCurrencyId ? args.currencyCodeById?.[String(targetCurrencyId)] : "") ||
+    normalizeCurrencyCode(args.reservationCurrencyId);
+
+  if (!targetCode || !sourceCode || sourceCode === targetCode) {
+    return {
+      amount: parsedAmount.toFixed(2),
+      currencyId: targetCurrencyId ?? sourceCurrencyId,
+    };
+  }
+
+  try {
+    const converted = await convertCurrencyAmount({
+      from: sourceCode,
+      to: targetCode,
+      amount: parsedAmount,
+    });
+
+    return {
+      amount: Number.isFinite(converted) ? converted.toFixed(2) : parsedAmount.toFixed(2),
+      currencyId: targetCurrencyId ?? findCurrencyIdByCode(targetCode, args.currencyCodeById) ?? sourceCurrencyId,
+    };
+  } catch {
+    // Even when amount conversion fails, still use the reservation currency
+    // so at least the currency label is correct (user can adjust amount manually)
+    return {
+      amount: parsedAmount.toFixed(2),
+      currencyId: targetCurrencyId ?? sourceCurrencyId,
+    };
+  }
+}
+
+async function loadFlightDetails(flightIds: number[]): Promise<FlightInventoryDetail[]> {
+  if (flightIds.length === 0) {
+    return [];
+  }
+
+  const details = await Promise.all(
+    flightIds.map(async (flightId) => {
+      const data = await axiosInstance
+        .get(`${INVENTORY_ENDPOINTS.adminFlights}${flightId}/`)
+        .then((response) => response.data)
+        .catch(() => null);
+
+      return toFlightInventoryDetail(data, flightId);
+    })
+  );
+
+  return details;
+}
+
+function pickArrivalDepartureFlights(flights: FlightInventoryDetail[]): FlightInventoryDetail[] {
+  if (flights.length <= 2) {
+    return flights;
+  }
+
+  const sorted = [...flights].sort((left, right) => {
+    const leftTime = Date.parse(left.departureAtRaw || `${left.departureDate || "1970-01-01"}T00:00:00`);
+    const rightTime = Date.parse(right.departureAtRaw || `${right.departureDate || "1970-01-01"}T00:00:00`);
+    return leftTime - rightTime;
+  });
+
+  const first = sorted[0];
+  const last = sorted[sorted.length - 1];
+  if (first.id === last.id) {
+    return [first];
+  }
+
+  return [first, last];
+}
+
+function buildAutoTicketNumber(args: {
+  reservationId: number;
+  touristId: number | null;
+  flightNumber: string;
+  legCode: "ARR" | "DEP";
+}) {
+  const safeFlight = args.flightNumber.replace(/\s+/g, "").slice(0, 12) || "FLT";
+  const paxPart = args.touristId ? `P${args.touristId}` : "P0";
+  return `${safeFlight}-${args.reservationId}-${paxPart}-${args.legCode}`;
+}
+
+async function prefillReservationServicesFromTourPackage(args: {
+  reservationId: number;
+  reservationDate: string;
+  tourPackageId: string;
+  ownerType: ReservationOwnerType;
+  reservationCurrencyId?: string;
+  currencyCodeById?: Record<string, string>;
+}) {
+  const parsedTourPackageId = Number.parseInt(args.tourPackageId, 10);
+  if (!Number.isFinite(parsedTourPackageId)) {
+    return { createdHotels: 0, createdTransfers: 0, createdTickets: 0 };
+  }
+
+  const tourPackage = await getAdminTourPackage(parsedTourPackageId);
+  const checkInDate = formatDateInputValue(args.reservationDate) || new Date().toISOString().slice(0, 10);
+  const checkOutDate = addDays(checkInDate, Math.max(tourPackage.nights, 1));
+
+  const [existingHotels, existingTransfers, existingTickets, tourists, flightDetailsAll] = await Promise.all([
+    listHotelBookings("admin", args.reservationId),
+    listTransferServices("admin", args.reservationId),
+    listFlightTickets(args.reservationId),
+    listTourists("admin", { reservationId: args.reservationId }),
+    loadFlightDetails(tourPackage.flights),
+  ]);
+  const selectedFlights = pickArrivalDepartureFlights(flightDetailsAll);
+
+  const existingHotelIds = new Set(existingHotels.map((booking) => booking.hotelId));
+  const existingTransferIds = new Set(existingTransfers.map((service) => service.transferCatalogId));
+  // key = "flightId-touristId" to detect per-tourist duplicates
+  const existingTicketKeys = new Set(
+    existingTickets.map((ticket) => `${ticket.flightId}-${ticket.touristId}`)
+  );
+
+  let createdHotels = 0;
+  let createdTransfers = 0;
+  let createdTickets = 0;
+
+  for (const hotelId of tourPackage.hotels) {
+    if (existingHotelIds.has(String(hotelId))) {
+      continue;
+    }
+
+    const hotelDetail = await axiosInstance
+      .get(`${INVENTORY_ENDPOINTS.adminHotels}${hotelId}/`)
+      .then((response) => response.data as Record<string, unknown>)
+      .catch(() => null);
+
+    const hotelBasePriceRaw =
+      args.ownerType === "AGENCY"
+        ? hotelDetail?.agency_price ?? hotelDetail?.public_price ?? hotelDetail?.price ?? "0"
+        : hotelDetail?.public_price ?? hotelDetail?.price ?? hotelDetail?.agency_price ?? "0";
+
+    const hotelCurrencyRaw = hotelDetail?.currency;
+    const hotelCurrency = resolveCurrencyNumericId(hotelCurrencyRaw, args.currencyCodeById);
+    const hotelCurrencyCode =
+      typeof hotelCurrencyRaw === "string"
+        ? normalizeCurrencyCode(hotelCurrencyRaw)
+        : hotelCurrencyRaw && typeof hotelCurrencyRaw === "object"
+          ? normalizeCurrencyCode(
+              (hotelCurrencyRaw as Record<string, unknown>).code ??
+                (hotelCurrencyRaw as Record<string, unknown>).currency_code ??
+                (hotelCurrencyRaw as Record<string, unknown>).iso_code
+            )
+          : "";
+
+    const convertedHotel = await convertToReservationCurrency({
+      amount: String(hotelBasePriceRaw ?? "0"),
+      sourceCurrencyId: hotelCurrency,
+      sourceCurrencyCode: hotelCurrencyCode,
+      reservationCurrencyId: args.reservationCurrencyId,
+      currencyCodeById: args.currencyCodeById,
+    });
+
+    await createHotelBooking("admin", {
+      reservation: args.reservationId,
+      hotel: hotelId,
+      check_in_date: checkInDate,
+      check_out_date: checkOutDate,
+      price: convertedHotel.amount,
+      currency: convertedHotel.currencyId,
+      paid: false,
+      is_paid_cancelation: false,
+      is_paid_cancellation: false,
+    });
+
+    createdHotels += 1;
+  }
+
+  for (const transferId of tourPackage.transfers) {
+    if (existingTransferIds.has(String(transferId))) {
+      continue;
+    }
+
+    const transferDetail = await axiosInstance
+      .get(`${INVENTORY_ENDPOINTS.adminTransfers}${transferId}/`)
+      .then((response) => response.data as Record<string, unknown>)
+      .catch(() => null);
+
+    const transferPriceRaw = transferDetail?.agency_price ?? transferDetail?.public_price ?? "0";
+    const transferCurrencyRaw = transferDetail?.currency ?? tourPackage.currency;
+    const transferCurrency =
+      typeof transferCurrencyRaw === "number"
+        ? transferCurrencyRaw
+        : Number.parseInt(String(transferCurrencyRaw ?? ""), 10) || tourPackage.currency;
+
+    await createTransferService("admin", {
+      reservation: args.reservationId,
+      tour_package: parsedTourPackageId,
+      transfer: transferId,
+      service_name: String(transferDetail?.name ?? `Transfer #${transferId}`),
+      service_date: checkInDate,
+      on_arrival: true,
+      on_departure: false,
+      from_location_type: String(transferDetail?.from_location_type ?? "OTHER"),
+      from_location_name: String(transferDetail?.from_location ?? ""),
+      to_location_type: String(transferDetail?.to_location_type ?? "OTHER"),
+      to_location_name: String(transferDetail?.to_location ?? ""),
+      price: String(transferPriceRaw ?? "0"),
+      currency: transferCurrency,
+      passengers: [],
+      external_note: "",
+      driver_note: "",
+    });
+
+    createdTransfers += 1;
+  }
+
+  for (const [flightIndex, flight] of selectedFlights.entries()) {
+    const legCode: "ARR" | "DEP" = selectedFlights.length > 1 && flightIndex === selectedFlights.length - 1 ? "DEP" : "ARR";
+    if (tourists.length === 0) {
+      // No tourists yet — create one unassigned placeholder ticket so the flight appears in the list.
+      // Admin can edit/duplicate later to assign passengers.
+      const key = `${flight.id}-unassigned`;
+      if (!existingTicketKeys.has(key)) {
+        const convertedFlight = await convertToReservationCurrency({
+          amount: resolveFlightPriceForOwner(flight, args.ownerType),
+          sourceCurrencyId: flight.currency,
+          sourceCurrencyCode: flight.currencyCode,
+          reservationCurrencyId: args.reservationCurrencyId,
+          currencyCodeById: args.currencyCodeById,
+        });
+
+        await createFlightTicket({
+          reservation: args.reservationId,
+          flight: flight.id,
+          tourist: null,
+          departure_date: flight.departureDate || null,
+          arrival_date: flight.arrivalDate || null,
+          departing_date: flight.departureDate || null,
+          arriving_date: flight.arrivalDate || null,
+          ticket_number: buildAutoTicketNumber({
+            reservationId: args.reservationId,
+            touristId: null,
+            flightNumber: flight.flightNumber,
+            legCode,
+          }),
+          pnr: buildAutoTicketNumber({
+            reservationId: args.reservationId,
+            touristId: null,
+            flightNumber: flight.flightNumber,
+            legCode,
+          }),
+          price: convertedFlight.amount,
+          currency: convertedFlight.currencyId,
+          paid: false,
+          is_paid: false,
+        });
+        existingTicketKeys.add(key);
+        createdTickets += 1;
+      }
+    } else {
+      // Create one ticket per tourist per flight
+      for (const tourist of tourists) {
+        const key = `${flight.id}-${tourist.id}`;
+        if (existingTicketKeys.has(key)) {
+          continue;
+        }
+
+        const convertedFlight = await convertToReservationCurrency({
+          amount: resolveFlightPriceForOwner(flight, args.ownerType),
+          sourceCurrencyId: flight.currency,
+          sourceCurrencyCode: flight.currencyCode,
+          reservationCurrencyId: args.reservationCurrencyId,
+          currencyCodeById: args.currencyCodeById,
+        });
+
+        await createFlightTicket({
+          reservation: args.reservationId,
+          flight: flight.id,
+          tourist: tourist.id,
+          departure_date: flight.departureDate || null,
+          arrival_date: flight.arrivalDate || null,
+          departing_date: flight.departureDate || null,
+          arriving_date: flight.arrivalDate || null,
+          ticket_number: buildAutoTicketNumber({
+            reservationId: args.reservationId,
+            touristId: tourist.id,
+            flightNumber: flight.flightNumber,
+            legCode,
+          }),
+          pnr: buildAutoTicketNumber({
+            reservationId: args.reservationId,
+            touristId: tourist.id,
+            flightNumber: flight.flightNumber,
+            legCode,
+          }),
+          price: convertedFlight.amount,
+          currency: convertedFlight.currencyId,
+          paid: false,
+          is_paid: false,
+        });
+
+        existingTicketKeys.add(key);
+        createdTickets += 1;
+      }
+    }
+  }
+
+  return { createdHotels, createdTransfers, createdTickets };
+}
+
+async function syncReservationServiceCurrencies(args: {
+  reservationId: number;
+  reservationCurrencyId?: string;
+  ownerType: ReservationOwnerType;
+  currencyCodeById?: Record<string, string>;
+}) {
+  if (!args.reservationCurrencyId) {
+    return;
+  }
+
+  const [tickets, hotels] = await Promise.all([
+    listFlightTickets(args.reservationId),
+    listHotelBookings("admin", args.reservationId),
+  ]);
+
+  if (tickets.length > 0) {
+    const flightIds = tickets
+      .map((ticket) => Number.parseInt(ticket.flightId, 10))
+      .filter((id) => Number.isFinite(id));
+    const uniqueFlightIds = Array.from(new Set(flightIds));
+    const flightDetails = await loadFlightDetails(uniqueFlightIds);
+    const flightById = new Map<number, FlightInventoryDetail>(flightDetails.map((f) => [f.id, f]));
+
+    for (const ticket of tickets) {
+      const flightId = Number.parseInt(ticket.flightId, 10);
+      const detail = Number.isFinite(flightId) ? flightById.get(flightId) : undefined;
+
+      const ticketPrice = Number.parseFloat(ticket.price);
+      const fallbackPrice = detail ? Number.parseFloat(resolveFlightPriceForOwner(detail, args.ownerType)) : Number.NaN;
+      const sourceAmount = Number.isFinite(ticketPrice) && ticketPrice > 0
+        ? ticket.price
+        : Number.isFinite(fallbackPrice)
+          ? fallbackPrice.toFixed(2)
+          : "0.00";
+
+      const sourceCurrencyId = ticket.currencyId
+        ? resolveCurrencyNumericId(ticket.currencyId, args.currencyCodeById)
+        : detail?.currency ?? null;
+      const sourceCurrencyCode = normalizeCurrencyCode(ticket.currencyId) || detail?.currencyCode || "";
+
+      const converted = await convertToReservationCurrency({
+        amount: sourceAmount,
+        sourceCurrencyId,
+        sourceCurrencyCode,
+        reservationCurrencyId: args.reservationCurrencyId,
+        currencyCodeById: args.currencyCodeById,
+      });
+
+      await updateFlightTicket(ticket.id, {
+        reservation: args.reservationId,
+        price: converted.amount,
+        currency: converted.currencyId,
+      });
+    }
+  }
+
+  if (hotels.length > 0) {
+    const hotelIds = hotels
+      .map((hotel) => Number.parseInt(hotel.hotelId, 10))
+      .filter((id) => Number.isFinite(id));
+    const uniqueHotelIds = Array.from(new Set(hotelIds));
+
+    const hotelDetails = await Promise.all(
+      uniqueHotelIds.map(async (hotelId) => {
+        const row = await axiosInstance
+          .get(`${INVENTORY_ENDPOINTS.adminHotels}${hotelId}/`)
+          .then((response) => response.data as Record<string, unknown>)
+          .catch(() => null);
+        return [hotelId, row] as const;
+      })
+    );
+    const hotelById = new Map<number, Record<string, unknown> | null>(hotelDetails);
+
+    for (const hotel of hotels) {
+      const hotelId = Number.parseInt(hotel.hotelId, 10);
+      const detail = Number.isFinite(hotelId) ? hotelById.get(hotelId) : null;
+
+      const hotelPrice = Number.parseFloat(hotel.price ?? "");
+      const fallbackPriceRaw =
+        args.ownerType === "AGENCY"
+          ? detail?.agency_price ?? detail?.public_price ?? detail?.price
+          : detail?.public_price ?? detail?.price ?? detail?.agency_price;
+      const fallbackPrice = Number.parseFloat(String(fallbackPriceRaw ?? ""));
+      const sourceAmount = Number.isFinite(hotelPrice) && hotelPrice > 0
+        ? String(hotel.price)
+        : Number.isFinite(fallbackPrice)
+          ? fallbackPrice.toFixed(2)
+          : "0.00";
+
+      const detailCurrencyRaw = detail?.currency;
+      const detailCurrencyId = resolveCurrencyNumericId(detailCurrencyRaw, args.currencyCodeById);
+      const detailCurrencyCode =
+        typeof detailCurrencyRaw === "string"
+          ? normalizeCurrencyCode(detailCurrencyRaw)
+          : detailCurrencyRaw && typeof detailCurrencyRaw === "object"
+            ? normalizeCurrencyCode(
+                (detailCurrencyRaw as Record<string, unknown>).code ??
+                  (detailCurrencyRaw as Record<string, unknown>).currency_code ??
+                  (detailCurrencyRaw as Record<string, unknown>).iso_code
+              )
+            : "";
+
+      const sourceCurrencyId = hotel.currencyId
+        ? resolveCurrencyNumericId(hotel.currencyId, args.currencyCodeById)
+        : detailCurrencyId;
+      const sourceCurrencyCode = normalizeCurrencyCode(hotel.currencyId) || detailCurrencyCode;
+
+      const converted = await convertToReservationCurrency({
+        amount: sourceAmount,
+        sourceCurrencyId,
+        sourceCurrencyCode,
+        reservationCurrencyId: args.reservationCurrencyId,
+        currencyCodeById: args.currencyCodeById,
+      });
+
+      await updateHotelBooking("admin", hotel.id, {
+        reservation: args.reservationId,
+        price: converted.amount,
+        currency: converted.currencyId,
+      });
+    }
+  }
+}
+
 
 
 function ReservationFormPanel({
@@ -498,40 +1075,41 @@ function ReservationFormPanel({
       </div>
 
       <form
-        className="grid gap-3 p-4 sm:grid-cols-2"
+        className="grid gap-4 p-4"
         onSubmit={(event) => {
           event.preventDefault();
           onSave();
         }}
       >
-        <div className="sm:col-span-2">
-          <label htmlFor="reservationNo" className="mb-1 block text-xs font-medium text-slate-600">
-            Reservation Number
-          </label>
-          <input
-            id="reservationNo"
-            value={form.reservationNo}
-            readOnly
-            className="w-full rounded-md border border-slate-300 bg-white px-2.5 py-2 text-sm text-slate-800 outline-none transition focus:border-slate-500 focus:ring-2 focus:ring-slate-200"
-          />
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label htmlFor="reservationNo" className="mb-1 block text-xs font-medium text-slate-600">
+              Reservation No
+            </label>
+            <input
+              id="reservationNo"
+              value={form.reservationNo}
+              readOnly
+              className="w-full rounded-md border border-slate-300 bg-slate-50 px-2.5 py-2 text-xs text-slate-700 outline-none"
+            />
+          </div>
+          <div>
+            <label htmlFor="reservationDate" className="mb-1 block text-xs font-medium text-slate-600">
+              Date
+            </label>
+            <input
+              id="reservationDate"
+              type="date"
+              value={form.reservationDate}
+              readOnly
+              className="w-full rounded-md border border-slate-300 bg-slate-50 px-2.5 py-2 text-xs text-slate-700 outline-none"
+            />
+          </div>
         </div>
 
-        <div className="sm:col-span-2">
-          <label htmlFor="reservationDate" className="mb-1 block text-xs font-medium text-slate-600">
-            Reservation Date
-          </label>
-          <input
-            id="reservationDate"
-            type="date"
-            value={form.reservationDate}
-            readOnly
-            className="w-full rounded-md border border-slate-300 bg-slate-50 px-2.5 py-2 text-sm text-slate-700 outline-none"
-          />
-        </div>
-
-        <div className="sm:col-span-2 rounded-lg border border-slate-200 bg-slate-50 p-2.5">
+        <div className="rounded-lg border border-slate-200 bg-slate-50 p-2.5">
           <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-600">Reservation Setup</p>
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid gap-3">
             <div>
               <p className="mb-1 text-[11px] font-medium text-slate-600">Reservation Owner</p>
               <div className="grid grid-cols-2 gap-2">
@@ -590,82 +1168,86 @@ function ReservationFormPanel({
           </div>
         </div>
 
-        <div>
-          <label htmlFor="ownerId" className="mb-1 block text-xs font-medium text-slate-600">
-            {form.ownerType === "AGENCY" ? "Agency" : "Normal Customer"}
-          </label>
-          <select
-            id="ownerId"
-            value={form.ownerType === "AGENCY" ? form.agencyId : form.customerId}
-            onChange={(event) =>
-              form.ownerType === "AGENCY"
-                ? onChange("agencyId", event.target.value)
-                : onChange("customerId", event.target.value)
-            }
-            disabled={relatedLoading}
-            className="w-full rounded-md border border-slate-300 bg-white px-2.5 py-2 text-xs text-slate-800 outline-none transition focus:border-slate-500 focus:ring-2 focus:ring-slate-200"
-          >
-            {relatedLoading ? <option value="">Loading owners...</option> : null}
-            {!relatedLoading && form.ownerType === "AGENCY" && agencyOptions.length === 0 ? (
-              <option value="">No agencies available</option>
-            ) : null}
-            {!relatedLoading && form.ownerType === "NORMAL" && customerOptions.length === 0 ? (
-              <option value="">No normal customers available</option>
-            ) : null}
-            {!relatedLoading && form.ownerType === "AGENCY"
-              ? agencyOptions.map((option) => (
-                  <option key={option.id} value={option.id}>
-                    {option.label}
-                  </option>
-                ))
-              : null}
-            {!relatedLoading && form.ownerType === "NORMAL"
-              ? customerOptions.map((option) => (
-                  <option key={option.id} value={option.id}>
-                    {option.label}
-                  </option>
-                ))
-              : null}
-          </select>
-        </div>
-
-        <div>
-          {form.bookingMode === "WITH_TOUR_PACKAGE" ? (
-            <>
-              <label htmlFor="tourPackageId" className="mb-1 block text-xs font-medium text-slate-600">
-                Tour Package
-              </label>
-              <select
-                id="tourPackageId"
-                value={form.tourPackageId}
-                onChange={(event) => onChange("tourPackageId", event.target.value)}
-                disabled={relatedLoading}
-                className="w-full rounded-md border border-slate-300 bg-white px-2.5 py-2 text-xs text-slate-800 outline-none transition focus:border-slate-500 focus:ring-2 focus:ring-slate-200"
-              >
-                {relatedLoading ? (
-                  <option value="">Loading tour packages...</option>
-                ) : tourPackageOptions.length === 0 ? (
-                  <option value="">No tour packages available</option>
-                ) : (
-                  tourPackageOptions.map((option) => (
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label htmlFor="ownerId" className="mb-1 block text-xs font-medium text-slate-600">
+              {form.ownerType === "AGENCY" ? "Agency" : "Normal Customer"}
+            </label>
+            <select
+              id="ownerId"
+              value={form.ownerType === "AGENCY" ? form.agencyId : form.customerId}
+              onChange={(event) =>
+                form.ownerType === "AGENCY"
+                  ? onChange("agencyId", event.target.value)
+                  : onChange("customerId", event.target.value)
+              }
+              disabled={relatedLoading}
+              className="w-full rounded-md border border-slate-300 bg-white px-2.5 py-2 text-xs text-slate-800 outline-none transition focus:border-slate-500 focus:ring-2 focus:ring-slate-200"
+            >
+              {relatedLoading ? <option value="">Loading owners...</option> : null}
+              {!relatedLoading && form.ownerType === "AGENCY" && agencyOptions.length === 0 ? (
+                <option value="">No agencies available</option>
+              ) : null}
+              {!relatedLoading && form.ownerType === "NORMAL" && customerOptions.length === 0 ? (
+                <option value="">No normal customers available</option>
+              ) : null}
+              {!relatedLoading && form.ownerType === "AGENCY"
+                ? agencyOptions.map((option) => (
                     <option key={option.id} value={option.id}>
                       {option.label}
                     </option>
                   ))
-                )}
-              </select>
-            </>
-          ) : (
-            <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] font-medium text-amber-800">
-              Standalone mode selected. Tour package is not required.
-            </div>
-          )}
+                : null}
+              {!relatedLoading && form.ownerType === "NORMAL"
+                ? customerOptions.map((option) => (
+                    <option key={option.id} value={option.id}>
+                      {option.label}
+                    </option>
+                  ))
+                : null}
+            </select>
+          </div>
+
+          <div>
+            {form.bookingMode === "WITH_TOUR_PACKAGE" ? (
+              <>
+                <label htmlFor="tourPackageId" className="mb-1 block text-xs font-medium text-slate-600">
+                  Tour Package
+                </label>
+                <select
+                  id="tourPackageId"
+                  value={form.tourPackageId}
+                  onChange={(event) => onChange("tourPackageId", event.target.value)}
+                  disabled={relatedLoading}
+                  className="w-full rounded-md border border-slate-300 bg-white px-2.5 py-2 text-xs text-slate-800 outline-none transition focus:border-slate-500 focus:ring-2 focus:ring-slate-200"
+                >
+                  {relatedLoading ? (
+                    <option value="">Loading tour packages...</option>
+                  ) : tourPackageOptions.length === 0 ? (
+                    <option value="">No tour packages available</option>
+                  ) : (
+                    tourPackageOptions.map((option) => (
+                      <option key={option.id} value={option.id}>
+                        {option.label}
+                      </option>
+                    ))
+                  )}
+                </select>
+              </>
+            ) : (
+              <div className="flex h-full items-end">
+                <div className="w-full rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] font-medium text-amber-800">
+                  Standalone mode — no tour package.
+                </div>
+              </div>
+            )}
+          </div>
         </div>
 
         {form.ownerType === "AGENCY" && selectedAgencyDetails ? (
-          <div className="sm:col-span-2 rounded-lg border border-slate-200 bg-white p-2.5">
+          <div className="rounded-lg border border-slate-200 bg-white p-2.5">
             <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-600">Agency Details</p>
-            <div className="grid gap-1.5 sm:grid-cols-2">
+            <div className="grid grid-cols-2 gap-1.5">
               <div className="rounded border border-slate-200 bg-slate-50 px-2 py-1.5">
                 <p className="text-[10px] uppercase tracking-wide text-slate-500">Name</p>
                 <p className="text-[11px] font-medium text-slate-800">{selectedAgencyDetails.name || "-"}</p>
@@ -702,57 +1284,59 @@ function ReservationFormPanel({
           </div>
         ) : null}
 
-        <div>
-          <label htmlFor="status" className="mb-1 block text-xs font-medium text-slate-600">
-            Status
-          </label>
-          <select
-            id="status"
-            value={form.status}
-            onChange={(event) => onChange("status", event.target.value)}
-            disabled={statusesLoading}
-            className="w-full rounded-md border border-slate-300 bg-white px-2.5 py-2 text-sm text-slate-800 outline-none transition focus:border-slate-500 focus:ring-2 focus:ring-slate-200 disabled:cursor-wait disabled:opacity-60"
-          >
-            {statusesLoading ? (
-              <option value="">Loading statuses...</option>
-            ) : statusOptions.length === 0 ? (
-              <option value="">No statuses available</option>
-            ) : (
-              statusOptions.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))
-            )}
-          </select>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label htmlFor="status" className="mb-1 block text-xs font-medium text-slate-600">
+              Status
+            </label>
+            <select
+              id="status"
+              value={form.status}
+              onChange={(event) => onChange("status", event.target.value)}
+              disabled={statusesLoading}
+              className="w-full rounded-md border border-slate-300 bg-white px-2.5 py-2 text-xs text-slate-800 outline-none transition focus:border-slate-500 focus:ring-2 focus:ring-slate-200 disabled:cursor-wait disabled:opacity-60"
+            >
+              {statusesLoading ? (
+                <option value="">Loading statuses...</option>
+              ) : statusOptions.length === 0 ? (
+                <option value="">No statuses available</option>
+              ) : (
+                statusOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))
+              )}
+            </select>
+          </div>
+
+          <div>
+            <label htmlFor="currency" className="mb-1 block text-xs font-medium text-slate-600">
+              Currency
+            </label>
+            <select
+              id="currency"
+              value={form.currencyId}
+              onChange={(event) => onChange("currencyId", event.target.value)}
+              disabled={currenciesLoading}
+              className="w-full rounded-md border border-slate-300 bg-white px-2.5 py-2 text-xs text-slate-800 outline-none transition focus:border-slate-500 focus:ring-2 focus:ring-slate-200 disabled:cursor-wait disabled:opacity-60"
+            >
+              {currenciesLoading ? (
+                <option value="">Loading currencies...</option>
+              ) : currencyOptions.length === 0 ? (
+                <option value="">No currencies available</option>
+              ) : (
+                currencyOptions.map((option) => (
+                  <option key={option.id} value={option.id}>
+                    {option.label}
+                  </option>
+                ))
+              )}
+            </select>
+          </div>
         </div>
 
-        <div>
-          <label htmlFor="currency" className="mb-1 block text-xs font-medium text-slate-600">
-            Currency
-          </label>
-          <select
-            id="currency"
-            value={form.currencyId}
-            onChange={(event) => onChange("currencyId", event.target.value)}
-            disabled={currenciesLoading}
-            className="w-full rounded-md border border-slate-300 bg-white px-2.5 py-2 text-sm text-slate-800 outline-none transition focus:border-slate-500 focus:ring-2 focus:ring-slate-200 disabled:cursor-wait disabled:opacity-60"
-          >
-            {currenciesLoading ? (
-              <option value="">Loading currencies...</option>
-            ) : currencyOptions.length === 0 ? (
-              <option value="">No currencies available</option>
-            ) : (
-              currencyOptions.map((option) => (
-                <option key={option.id} value={option.id}>
-                  {option.label}
-                </option>
-              ))
-            )}
-          </select>
-        </div>
-
-        <div className="sm:col-span-2 pt-1">
+        <div className="pt-1">
           <button
             type="submit"
             disabled={isSaving}
@@ -958,7 +1542,7 @@ function ReservationRecordsTable({
         </div>
       </div>
 
-      <div className="max-h-[34vh] overflow-auto">
+      <div className="max-h-[42vh] overflow-auto">
         <table className="min-w-full text-left text-xs">
           <thead className="sticky top-0 z-10 bg-slate-100 text-[11px] uppercase tracking-wide text-slate-600">
             {table.getHeaderGroups().map((headerGroup) => (
@@ -1020,18 +1604,25 @@ function ReservationRecordsTable({
 
 function ReservationTabsPanel({
   reservationId,
+  ownerType,
   tourPackageId,
   currencyOptions,
+  reservationCurrencyId,
+  currencyCodeById,
 }: {
   reservationId: number | null;
+  ownerType: ReservationOwnerType;
   tourPackageId?: string;
   currencyOptions: Array<{ id: string; label: string }>;
+  reservationCurrencyId?: string;
+  currencyCodeById?: Record<string, string>;
 }) {
   const [activeTab, setActiveTab] = useState<TabLabel>("Hotel");
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const hotelManagerRef = useRef<ReservationServiceManagerHandle | null>(null);
   const transferManagerRef = useRef<ReservationServiceManagerHandle | null>(null);
   const excursionManagerRef = useRef<ReservationServiceManagerHandle | null>(null);
+  const flightTicketManagerRef = useRef<ReservationServiceManagerHandle | null>(null);
   const actionButtons = [
     { label: "Add", primary: true },
     { label: "Edit" },
@@ -1045,8 +1636,8 @@ function ReservationTabsPanel({
     { label: "Set Confirmation" },
   ];
 
-  const supportsActiveTabAdd = activeTab === "Hotel" || activeTab === "Transfer" || activeTab === "Excursion";
-  const supportsSelectedRowActions = activeTab === "Hotel" || activeTab === "Transfer" || activeTab === "Excursion";
+  const supportsActiveTabAdd = activeTab === "Hotel" || activeTab === "Transfer" || activeTab === "Excursion" || activeTab === "Flight Tickets";
+  const supportsSelectedRowActions = activeTab === "Hotel" || activeTab === "Transfer" || activeTab === "Excursion" || activeTab === "Flight Tickets";
 
   const runSelectedRowAction = (action: "edit" | "view" | "delete") => {
     const manager =
@@ -1054,7 +1645,9 @@ function ReservationTabsPanel({
         ? hotelManagerRef.current
         : activeTab === "Excursion"
           ? excursionManagerRef.current
-          : transferManagerRef.current;
+          : activeTab === "Flight Tickets"
+            ? flightTicketManagerRef.current
+            : transferManagerRef.current;
 
     if (!manager) {
       return;
@@ -1162,7 +1755,17 @@ function ReservationTabsPanel({
       </div>
 
       {activeTab === "Hotel" ? (
-        <HotelBookingManager ref={hotelManagerRef} key={`hotel-${reservationId ?? "none"}`} reservationId={reservationId} isAddOpen={isAddModalOpen} onCloseAdd={() => setIsAddModalOpen(false)} />
+        <HotelBookingManager
+          ref={hotelManagerRef}
+          key={`hotel-${reservationId ?? "none"}`}
+          reservationId={reservationId}
+          ownerType={ownerType}
+          currencyOptions={currencyOptions}
+          reservationCurrencyId={reservationCurrencyId}
+          currencyCodeById={currencyCodeById}
+          isAddOpen={isAddModalOpen}
+          onCloseAdd={() => setIsAddModalOpen(false)}
+        />
       ) : activeTab === "Transfer" ? (
         <TransferServiceManager
           ref={transferManagerRef}
@@ -1176,6 +1779,18 @@ function ReservationTabsPanel({
       ) : activeTab === "Excursion" ? (
         <ExcursionServiceManager
           ref={excursionManagerRef}
+          isAddOpen={isAddModalOpen}
+          onCloseAdd={() => setIsAddModalOpen(false)}
+        />
+      ) : activeTab === "Flight Tickets" ? (
+        <FlightTicketManager
+          ref={flightTicketManagerRef}
+          key={`flight-ticket-${reservationId ?? "none"}`}
+          reservationId={reservationId}
+          ownerType={ownerType}
+          currencyOptions={currencyOptions}
+          reservationCurrencyId={reservationCurrencyId}
+          currencyCodeById={currencyCodeById}
           isAddOpen={isAddModalOpen}
           onCloseAdd={() => setIsAddModalOpen(false)}
         />
@@ -1204,6 +1819,19 @@ function ReservationTabsPanel({
 export default function ReservationsPage() {
   const queryClient = useQueryClient();
   const [currencyOptions, setCurrencyOptions] = useState<SelectOption[]>([]);
+  // Derived map: DB currency ID → ISO code (e.g. "3" → "TRY"). Built from currencyOptions
+  // so it always matches the same parse logic and is never stale.
+  const currencyCodeById = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const option of currencyOptions) {
+      // Labels are always "CODE - Name (symbol)" or just "CODE"
+      const code = option.label.split(' - ')[0]?.trim().toUpperCase() ?? "";
+      if (code && option.id) {
+        map[option.id] = code;
+      }
+    }
+    return map;
+  }, [currencyOptions]);
   const [statusOptions, setStatusOptions] = useState<Array<{ value: string; label: string }>>(
     RESERVATION_STATUS_FALLBACK_OPTIONS
   );
@@ -1329,7 +1957,7 @@ export default function ReservationsPage() {
       const response = await axiosInstance.post(RESERVATIONS_ENDPOINTS.adminReservations, payload);
       return response.data;
     },
-    onSuccess: async (data) => {
+    onSuccess: async (data, variables) => {
       const savedRows = normalizeReservations([data]);
       const savedRow = savedRows[0];
 
@@ -1348,11 +1976,56 @@ export default function ReservationsPage() {
           tourPackageId: savedRow.tourPackageId,
           currencyId: savedRow.currencyId,
         });
+
+        if (!variables.id && variables.bookingMode === "WITH_TOUR_PACKAGE" && savedRow.tourPackageId) {
+          try {
+            const prefillResult = await prefillReservationServicesFromTourPackage({
+              reservationId: savedRow.id,
+              reservationDate: savedRow.reservationDate || formatDateInputValue(new Date().toISOString()),
+              tourPackageId: savedRow.tourPackageId,
+              ownerType: variables.ownerType,
+              reservationCurrencyId: savedRow.currencyId,
+              currencyCodeById,
+            });
+
+            if (prefillResult.createdHotels > 0 || prefillResult.createdTransfers > 0 || prefillResult.createdTickets > 0) {
+              const parts: string[] = [];
+              if (prefillResult.createdHotels > 0) parts.push(`${prefillResult.createdHotels} hotel line(s)`);
+              if (prefillResult.createdTransfers > 0) parts.push(`${prefillResult.createdTransfers} transfer line(s)`);
+              if (prefillResult.createdTickets > 0) parts.push(`${prefillResult.createdTickets} flight ticket(s)`);
+              setToastMessage(`Reservation saved. Auto-added ${parts.join(", ")} from tour package.`);
+            }
+          } catch {
+            setToastMessage("Reservation saved, but some package services could not be auto-added.");
+          }
+        }
+
+        // Keep existing service lines aligned with the reservation currency after save/edit.
+        try {
+          await syncReservationServiceCurrencies({
+            reservationId: savedRow.id,
+            reservationCurrencyId: savedRow.currencyId,
+            ownerType: variables.ownerType,
+            currencyCodeById,
+          });
+        } catch {
+          // Non-blocking; user can still continue and manually adjust specific lines.
+        }
       }
 
-      setToastMessage("Reservation saved.");
+      if (!( !variables.id && variables.bookingMode === "WITH_TOUR_PACKAGE" && savedRow?.tourPackageId)) {
+        setToastMessage("Reservation saved.");
+      }
       setFormError("");
-      await queryClient.invalidateQueries({ queryKey: ["reservations", "admin"] });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["reservations", "admin"] }),
+        savedRow?.id
+          ? queryClient.invalidateQueries({ queryKey: ["reservation-service", "hotel", savedRow.id] })
+          : Promise.resolve(),
+        savedRow?.id
+          ? queryClient.invalidateQueries({ queryKey: ["reservation-service", "transfer", savedRow.id] })
+          : Promise.resolve(),
+      ]);
     },
     onError: (error) => {
       setFormError(resolveReservationSaveError(error));
@@ -1563,9 +2236,10 @@ export default function ReservationsPage() {
         </div>
       ) : null}
 
-      <div className="grid h-[calc(100vh-12rem)] min-h-[620px] grid-cols-1 gap-4 xl:grid-cols-12">
-        <div className="min-h-0 xl:col-span-4">
-          <div className="flex h-full min-h-0 flex-col gap-4 overflow-hidden">
+      <div className="lg:origin-top-left lg:scale-[0.96] lg:w-[104.1667%] xl:w-full xl:scale-100">
+        <div className="grid h-[calc(100vh-12rem)] min-h-[620px] grid-cols-1 gap-4 lg:grid-cols-12">
+          <div className="min-h-0 lg:col-span-5">
+            <div className="flex h-full min-h-0 flex-col gap-4 overflow-hidden">
             <div className="min-h-0 flex-[7] overflow-y-auto pr-1">
               <ReservationFormPanel
                 form={form}
@@ -1584,33 +2258,100 @@ export default function ReservationsPage() {
               />
             </div>
             <div className="min-h-0 flex-[4] overflow-y-auto pr-1">
-              <TouristManager key={`tourists-${activeReservationId ?? "none"}`} reservationId={activeReservationId} />
+              <TouristManager
+                key={`tourists-${activeReservationId ?? "none"}`}
+                reservationId={activeReservationId}
+                onTouristAdded={async (tourist) => {
+                  if (!activeReservationId || !form.tourPackageId) return;
+                  const parsedPkgId = Number.parseInt(form.tourPackageId, 10);
+                  if (!Number.isFinite(parsedPkgId)) return;
+                  try {
+                    const tourPackage = await getAdminTourPackage(parsedPkgId);
+                    const [existing, flightDetailsAll] = await Promise.all([
+                      listFlightTickets(activeReservationId),
+                      loadFlightDetails(tourPackage.flights),
+                    ]);
+                    const selectedFlights = pickArrivalDepartureFlights(flightDetailsAll);
+                    const existingKeys = new Set(existing.map((t) => `${t.flightId}-${t.touristId}`));
+                    for (const [flightIndex, flight] of selectedFlights.entries()) {
+                      const legCode: "ARR" | "DEP" = selectedFlights.length > 1 && flightIndex === selectedFlights.length - 1 ? "DEP" : "ARR";
+                      const key = `${flight.id}-${tourist.id}`;
+                      if (!existingKeys.has(key)) {
+                        const convertedFlight = await convertToReservationCurrency({
+                          amount: resolveFlightPriceForOwner(flight, form.ownerType),
+                          sourceCurrencyId: flight.currency,
+                          sourceCurrencyCode: flight.currencyCode,
+                          reservationCurrencyId: form.currencyId,
+                          currencyCodeById,
+                        });
+
+                        await createFlightTicket({
+                          reservation: activeReservationId,
+                          flight: flight.id,
+                          tourist: tourist.id,
+                          departure_date: flight.departureDate || null,
+                          arrival_date: flight.arrivalDate || null,
+                          departing_date: flight.departureDate || null,
+                          arriving_date: flight.arrivalDate || null,
+                          ticket_number: buildAutoTicketNumber({
+                            reservationId: activeReservationId,
+                            touristId: tourist.id,
+                            flightNumber: flight.flightNumber,
+                            legCode,
+                          }),
+                          pnr: buildAutoTicketNumber({
+                            reservationId: activeReservationId,
+                            touristId: tourist.id,
+                            flightNumber: flight.flightNumber,
+                            legCode,
+                          }),
+                          price: convertedFlight.amount,
+                          currency: convertedFlight.currencyId,
+                          paid: false,
+                          is_paid: false,
+                        });
+                      }
+                    }
+                    await queryClient.invalidateQueries({ queryKey: ["reservation-service", "flight-ticket", activeReservationId] });
+                  } catch {
+                    // silently skip — tickets can be added manually
+                  }
+                }}
+              />
             </div>
           </div>
-        </div>
+          </div>
 
-        <div className="min-h-0 xl:col-span-8">
-          <div className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto">
-            <ReservationRecordsTable
-              rows={reservationsQuery.data ?? []}
-              loading={reservationsQuery.isLoading}
-              selectedReservationId={selectedReservationId}
-              onSelect={handleSelectReservation}
-              onAdd={handleAddReservation}
-              onFinalize={() => {
-                void finalizeReservationMutation.mutateAsync(form);
-              }}
-              canFinalize={Boolean(form.id)}
-              isFinalizing={finalizeReservationMutation.isPending}
-              ownerLabelById={ownerLabelById}
-              tourPackageLabelById={tourPackageLabelById}
-              currencyLabelById={currencyLabelById}
-            />
-            <ReservationTabsPanel
-              reservationId={activeReservationId}
-              tourPackageId={form.bookingMode === "WITH_TOUR_PACKAGE" ? form.tourPackageId : undefined}
-              currencyOptions={currencyOptions}
-            />
+          <div className="min-h-0 lg:col-span-7">
+            <div className="flex h-full min-h-0 flex-col gap-4 overflow-hidden">
+            <div className="min-h-0 flex-[6]">
+              <ReservationRecordsTable
+                rows={reservationsQuery.data ?? []}
+                loading={reservationsQuery.isLoading}
+                selectedReservationId={selectedReservationId}
+                onSelect={handleSelectReservation}
+                onAdd={handleAddReservation}
+                onFinalize={() => {
+                  void finalizeReservationMutation.mutateAsync(form);
+                }}
+                canFinalize={Boolean(form.id)}
+                isFinalizing={finalizeReservationMutation.isPending}
+                ownerLabelById={ownerLabelById}
+                tourPackageLabelById={tourPackageLabelById}
+                currencyLabelById={currencyLabelById}
+              />
+            </div>
+            <div className="min-h-0 flex-[4]">
+              <ReservationTabsPanel
+                reservationId={activeReservationId}
+                ownerType={form.ownerType}
+                tourPackageId={form.bookingMode === "WITH_TOUR_PACKAGE" ? form.tourPackageId : undefined}
+                currencyOptions={currencyOptions}
+                reservationCurrencyId={form.currencyId}
+                currencyCodeById={currencyCodeById}
+              />
+            </div>
+            </div>
           </div>
         </div>
       </div>
