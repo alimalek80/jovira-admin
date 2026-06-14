@@ -1,3 +1,4 @@
+// src/components/dashboard-shell.tsx
 "use client";
 
 import { useState } from "react";
@@ -5,8 +6,14 @@ import { ChevronLeft, ChevronRight } from "lucide-react";
 import type { ReactNode } from "react";
 import DashboardSidebarNav from "@/components/dashboard-sidebar-nav";
 import DashboardUserMenu from "@/components/dashboard-user-menu";
+import type { AuthenticatedUser } from "@/lib/auth/types";
 
-export default function DashboardShell({ children }: { children: ReactNode }) {
+type DashboardShellProps = {
+  children: ReactNode;
+  user: AuthenticatedUser;
+};
+
+export default function DashboardShell({ children, user }: DashboardShellProps) {
   const [collapsed, setCollapsed] = useState(false);
 
   return (
@@ -33,8 +40,8 @@ export default function DashboardShell({ children }: { children: ReactNode }) {
           )}
         </div>
 
-        {/* Scrollable nav */}
-        <DashboardSidebarNav collapsed={collapsed} />
+        {/* Scrollable nav - Passing the user role here */}
+        <DashboardSidebarNav collapsed={collapsed} userRole={user?.role as string} />
 
         {/* Collapse toggle */}
         <div className="shrink-0 border-t border-slate-800 p-2">
@@ -57,7 +64,7 @@ export default function DashboardShell({ children }: { children: ReactNode }) {
         </div>
       </aside>
 
-      {/* Main content — shifts with the sidebar */}
+      {/* Main content */}
       <div
         className={`flex min-h-screen flex-col transition-[margin-left] duration-300 ease-in-out ${
           collapsed ? "ml-16" : "ml-64"

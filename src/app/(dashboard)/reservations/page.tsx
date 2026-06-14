@@ -1609,6 +1609,7 @@ function ReservationTabsPanel({
   currencyOptions,
   reservationCurrencyId,
   currencyCodeById,
+  onHotelBookingSelected,
 }: {
   reservationId: number | null;
   ownerType: ReservationOwnerType;
@@ -1616,6 +1617,7 @@ function ReservationTabsPanel({
   currencyOptions: Array<{ id: string; label: string }>;
   reservationCurrencyId?: string;
   currencyCodeById?: Record<string, string>;
+  onHotelBookingSelected?: (touristIds: number[] | null) => void;
 }) {
   const [activeTab, setActiveTab] = useState<TabLabel>("Hotel");
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -1765,6 +1767,7 @@ function ReservationTabsPanel({
           currencyCodeById={currencyCodeById}
           isAddOpen={isAddModalOpen}
           onCloseAdd={() => setIsAddModalOpen(false)}
+          onSelectBooking={onHotelBookingSelected}
         />
       ) : activeTab === "Transfer" ? (
         <TransferServiceManager
@@ -1847,6 +1850,9 @@ export default function ReservationsPage() {
   const [form, setForm] = useState<ReservationFormState>(EMPTY_RESERVATION_FORM);
   const [formError, setFormError] = useState("");
   const [toastMessage, setToastMessage] = useState("");
+  // Tourist IDs assigned to the currently-selected hotel booking row.
+  // null = no room selected → TouristManager shows all reservation tourists.
+  const [selectedHotelRoomTouristIds, setSelectedHotelRoomTouristIds] = useState<number[] | null>(null);
 
   useEffect(() => {
     const loadStatusOptions = async () => {
@@ -2151,6 +2157,8 @@ export default function ReservationsPage() {
   const handleSelectReservation = (row: ReservationRecord) => {
     setIsCreatingReservation(false);
     setSelectedReservationId(row.id);
+    // Clear hotel room selection when switching reservations
+    setSelectedHotelRoomTouristIds(null);
     setForm({
       id: row.id,
       reservationNo: row.reservationNo,
@@ -2261,6 +2269,7 @@ export default function ReservationsPage() {
               <TouristManager
                 key={`tourists-${activeReservationId ?? "none"}`}
                 reservationId={activeReservationId}
+                filterTouristIds={selectedHotelRoomTouristIds}
                 onTouristAdded={async (tourist) => {
                   if (!activeReservationId || !form.tourPackageId) return;
                   const parsedPkgId = Number.parseInt(form.tourPackageId, 10);
@@ -2349,6 +2358,7 @@ export default function ReservationsPage() {
                 currencyOptions={currencyOptions}
                 reservationCurrencyId={form.currencyId}
                 currencyCodeById={currencyCodeById}
+                onHotelBookingSelected={setSelectedHotelRoomTouristIds}
               />
             </div>
             </div>

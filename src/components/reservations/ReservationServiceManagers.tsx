@@ -99,6 +99,7 @@ function HotelViewPanel({ booking, currencyLabelById }: { booking: HotelBooking;
       <ViewField label="Cancellation #" value={booking.hotelCancellationNumber || "-"} />
       <ViewField label="Internal Note" value={booking.internalNote || "-"} />
       <ViewField label="Remarks for Hotel" value={booking.remarksForHotel || "-"} />
+      <ViewField label="Assigned Tourists" value={booking.tourists?.length ? `${booking.tourists.length} assigned` : "-"} />
     </div>
   );
 }
@@ -130,8 +131,9 @@ export const HotelBookingManager = forwardRef<
     currencyCodeById?: Record<string, string>;
     isAddOpen: boolean;
     onCloseAdd: () => void;
+    onSelectBooking?: (touristIds: number[] | null) => void;
   }
->(function HotelBookingManager({ reservationId, ownerType, currencyOptions, reservationCurrencyId, currencyCodeById, isAddOpen, onCloseAdd }, ref) {
+>(function HotelBookingManager({ reservationId, ownerType, currencyOptions, reservationCurrencyId, currencyCodeById, isAddOpen, onCloseAdd, onSelectBooking }, ref) {
   const queryClient = useQueryClient();
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [isViewOpen, setIsViewOpen] = useState(false);
@@ -236,6 +238,7 @@ export const HotelBookingManager = forwardRef<
             <tr>
               <th className="border-b border-slate-200 px-2 py-1.5 font-semibold">Room</th>
               <th className="border-b border-slate-200 px-2 py-1.5 font-semibold">Qty</th>
+              <th className="border-b border-slate-200 px-2 py-1.5 font-semibold">Tourists</th>
               <th className="border-b border-slate-200 px-2 py-1.5 font-semibold">Status</th>
               <th className="border-b border-slate-200 px-2 py-1.5 font-semibold">Check In</th>
               <th className="border-b border-slate-200 px-2 py-1.5 font-semibold">Check Out</th>
@@ -250,8 +253,11 @@ export const HotelBookingManager = forwardRef<
             {query.data.map((booking, index) => (
               <tr
                 key={booking.id}
-                onClick={() => setSelectedId(booking.id)}
-                onDoubleClick={() => { setSelectedId(booking.id); setIsEditOpen(true); }}
+                onClick={() => {
+                  setSelectedId(booking.id);
+                  onSelectBooking?.(booking.tourists?.length ? booking.tourists : null);
+                }}
+                onDoubleClick={() => { setSelectedId(booking.id); setIsEditOpen(true); onSelectBooking?.(booking.tourists?.length ? booking.tourists : null); }}
                 className={`cursor-pointer ${
                   selectedBooking?.id === booking.id
                     ? "bg-amber-200/80 hover:bg-amber-200"
@@ -264,6 +270,13 @@ export const HotelBookingManager = forwardRef<
               >
                 <td className="border-b border-slate-100 px-2 py-1.5 font-medium text-slate-800 max-w-[140px] truncate">{booking.roomLabel || "-"}</td>
                 <td className="border-b border-slate-100 px-2 py-1.5 text-slate-700">{booking.quantity}</td>
+                <td className="border-b border-slate-100 px-2 py-1.5 text-slate-700">
+                  {booking.tourists?.length ? (
+                    <span className="inline-flex rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-medium text-blue-700">
+                      {booking.tourists.length} assigned
+                    </span>
+                  ) : "-"}
+                </td>
                 <td className="border-b border-slate-100 px-2 py-1.5">
                   <span className={`inline-flex rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${
                     booking.status === "CONFIRMED" ? "bg-emerald-100 text-emerald-800"

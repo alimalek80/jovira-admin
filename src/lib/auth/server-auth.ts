@@ -17,9 +17,8 @@ function decodeTokenPayload(token: string): Record<string, unknown> | null {
     const base64 = payloadPart.replace(/-/g, "+").replace(/_/g, "/");
     const padded = `${base64}${"=".repeat((4 - (base64.length % 4)) % 4)}`;
     const decoded = Buffer.from(padded, "base64").toString("utf8");
-    const payload = JSON.parse(decoded) as Record<string, unknown>;
 
-    return payload;
+    return JSON.parse(decoded) as Record<string, unknown>;
   } catch {
     return null;
   }
@@ -27,7 +26,6 @@ function decodeTokenPayload(token: string): Record<string, unknown> | null {
 
 function resolveCurrentUserId(accessToken: string): string | number | null {
   const payload = decodeTokenPayload(accessToken);
-
   const rawId = payload?.user_id ?? payload?.userId ?? payload?.id ?? payload?.sub;
 
   if (typeof rawId === "number" && Number.isFinite(rawId)) {
@@ -52,14 +50,23 @@ function resolveCurrentUserId(accessToken: string): string | number | null {
   return null;
 }
 
-export async function fetchCurrentUser(accessToken: string): Promise<AuthenticatedUser | null> {
+export async function fetchCurrentUser(
+  accessToken: string
+): Promise<AuthenticatedUser | null> {
   const userId = resolveCurrentUserId(accessToken);
 
   if (userId === null) {
+    console.error(
+      "[fetchCurrentUser] Could not resolve userId from token:",
+      JSON.stringify(decodeTokenPayload(accessToken))
+    );
     return null;
   }
 
-  const response = await fetch(`${ACCOUNTS_ENDPOINTS.adminUsers}${encodeURIComponent(String(userId))}/`, {
+  const url = `${ACCOUNTS_ENDPOINTS.clientUsers}${encodeURIComponent(String(userId))}/`;
+  console.log("[fetchCurrentUser] GET", url);
+
+  const response = await fetch(url, {
     method: "GET",
     headers: {
       Authorization: `Bearer ${stripBearerPrefix(accessToken)}`,
@@ -69,15 +76,16 @@ export async function fetchCurrentUser(accessToken: string): Promise<Authenticat
   });
 
   if (!response.ok) {
+    console.error("[fetchCurrentUser] HTTP", response.status, "from", url);
     return null;
   }
 
-  const payload = (await response.json().catch(() => null)) as AuthenticatedUser | null;
-
-  return payload;
+  return (await response.json().catch(() => null)) as AuthenticatedUser | null;
 }
 
-export async function resolveAdminAppUser(accessToken: string): Promise<AuthenticatedUser | null> {
+export async function resolveAdminAppUser(
+  accessToken: string
+): Promise<AuthenticatedUser | null> {
   const user = await fetchCurrentUser(accessToken);
 
   if (!user) {

@@ -10,6 +10,8 @@ type TouristManagerProps = {
   reservationId: number | null;
   scope?: "admin" | "client";
   onTouristAdded?: (tourist: Tourist) => void;
+  /** When set, only tourists whose IDs are in this array are shown (room selection filter). */
+  filterTouristIds?: number[] | null;
 };
 
 function toDateInputValue(value: string | null | undefined): string {
@@ -27,7 +29,7 @@ function toDateInputValue(value: string | null | undefined): string {
   return normalized.slice(0, 10);
 }
 
-export default function TouristManager({ reservationId, scope = "admin", onTouristAdded }: TouristManagerProps) {
+export default function TouristManager({ reservationId, scope = "admin", onTouristAdded, filterTouristIds }: TouristManagerProps) {
   const queryClient = useQueryClient();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingTourist, setEditingTourist] = useState<Tourist | null>(null);
@@ -60,10 +62,23 @@ export default function TouristManager({ reservationId, scope = "admin", onTouri
     };
   }, [toastMessage]);
 
+  const isFiltered = Array.isArray(filterTouristIds);
+
+  // When a room is selected, show only tourists assigned to that room.
+  // Otherwise show all tourists for the reservation.
+  const displayedTourists = isFiltered
+    ? (touristsQuery.data ?? []).filter((t) => (filterTouristIds as number[]).includes(t.id))
+    : (touristsQuery.data ?? []);
+
   const touristCountLabel = useMemo(() => {
+    if (isFiltered) {
+      const total = touristsQuery.data?.length ?? 0;
+      const count = displayedTourists.length;
+      return `${count} of ${total} tourist${total === 1 ? "" : "s"} (room filter active)`;
+    }
     const count = touristsQuery.data?.length ?? 0;
     return `${count} tourist${count === 1 ? "" : "s"}`;
-  }, [touristsQuery.data]);
+  }, [touristsQuery.data, displayedTourists.length, isFiltered]);
 
   const selectedTourist = useMemo(
     () => touristsQuery.data?.find((tourist) => tourist.id === selectedTouristId) ?? null,
@@ -182,6 +197,20 @@ export default function TouristManager({ reservationId, scope = "admin", onTouri
         </div>
       ) : null}
 
+      {isFiltered ? (
+        <div className="mx-4 mt-3 flex items-center gap-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-2">
+          <svg viewBox="0 0 24 24" className="h-3.5 w-3.5 shrink-0 text-blue-600" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <polygon points="22 3 2 3 10 12.5 10 19 14 21 14 12.5 22 3" />
+          </svg>
+          <span className="text-[11px] font-medium text-blue-800">
+            Showing tourists assigned to selected room
+          </span>
+          {filterTouristIds?.length === 0 && (
+            <span className="ml-1 text-[11px] text-blue-600">(none assigned yet)</span>
+          )}
+        </div>
+      ) : null}
+
       {touristsQuery.error ? (
         <div className="mx-4 mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs font-medium text-red-700">
           Unable to load tourists.
@@ -195,6 +224,8 @@ export default function TouristManager({ reservationId, scope = "admin", onTouri
           <p className="text-xs text-slate-500">Loading tourists...</p>
         ) : !touristsQuery.data || touristsQuery.data.length === 0 ? (
           <p className="text-xs text-slate-500">No tourists added yet.</p>
+        ) : displayedTourists.length === 0 ? (
+          <p className="text-xs text-slate-500">No tourists are assigned to this room yet.</p>
         ) : (
           <table className="min-w-full rounded-md border border-slate-200 text-left text-[11px]">
             <thead className="sticky top-0 bg-slate-100 text-slate-600">
@@ -207,8 +238,8 @@ export default function TouristManager({ reservationId, scope = "admin", onTouri
               </tr>
             </thead>
             <tbody>
-              {touristsQuery.data.map((tourist, index) => (
-                <tr
+              {displayedTourists.map((tourist, index) => (
+              <tr
                   key={tourist.id}
                   onClick={() => setSelectedTouristId(tourist.id)}
                   className={`cursor-pointer ${

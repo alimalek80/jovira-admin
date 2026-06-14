@@ -55,7 +55,7 @@ export default function LoginPage() {
             </p>
           </div>
 
-          <form className="space-y-5" onSubmit={handleSignIn}>
+          <form className="space-y-5" method="post" onSubmit={handleSignIn}>
             <div>
               <label
                 htmlFor="email"

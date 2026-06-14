@@ -129,6 +129,7 @@ Admin approval:
   - **Flight fields:** `flight_number`, `airline`, `origin`, `destination`, `departure_time`, `arrival_time`, `currency`, `price`, `agency_price`, `cost_price` (internal cost — admin only)
 - `GET, POST /api/v1/inventory/admin/tour-packages/`
 - `GET, PUT, PATCH, DELETE /api/v1/inventory/admin/tour-packages/{id}/`
+- `GET /api/v1/inventory/admin/tour-packages/{id}/hotels/`
   - **Tour package fields (admin):**
     - Core: `name`, `destination`, `days`, `nights`, `currency`
     - Prices: `public_price`, `agency_price`, `cost_price`
@@ -209,6 +210,7 @@ Agency pricing behavior (flights, tour packages, excursions, transfers, hotel ro
 - `GET /api/v1/inventory/client/flights/{id}/`
 - `GET /api/v1/inventory/client/tour-packages/`
 - `GET /api/v1/inventory/client/tour-packages/{id}/`
+- `GET /api/v1/inventory/client/tour-packages/{id}/hotels/`
 - `GET /api/v1/inventory/client/excursions/`
 - `GET /api/v1/inventory/client/excursions/{id}/`
 - `GET /api/v1/inventory/client/transfers/`
@@ -287,6 +289,8 @@ Hotel booking notes:
 - Tracking fields: `confirm_booking_number`, `agent_confirmation_number`, `hotel_cancellation_number`.
 - Note fields: `internal_note` (staff only), `remarks_for_hotel` (sent to hotel).
 - Serializer validates dates, date-range fit within room window, and available count (excluding CANCELLED bookings).
+- **Workflow Validations:**
+  - `tourists` can be added and are validated against the room's capacity (e.g., SINGLE=1, DOUBLE=2, TRIPLE=3, FAMILY=4, SUITE=4) multiplied by `quantity`.
 
 Availability check endpoint:
 - `GET /api/v1/inventory/admin/hotel-rooms/{id}/availability/?check_in=YYYY-MM-DD&check_out=YYYY-MM-DD`
@@ -317,6 +321,7 @@ Hotel booking create payload example:
   "check_out_date": "2026-07-22",
   "quantity": 2,
   "status": "PENDING",
+  "tourists": [1, 5],
   "selling_currency": 1,
   "price": "240.00",
   "agency_price": "200.00",
@@ -459,7 +464,7 @@ export type AdminTourPackagePayload = {
 // selling_currency (FK), price, agency_price
 // cost_currency (FK), cost, cross_currency_rate
 // confirm_booking_number, agent_confirmation_number, hotel_cancellation_number
-// internal_note, remarks_for_hotel, is_paid
+// internal_note, remarks_for_hotel, is_paid, tourists (array of IDs)
 // board_type lives on HotelRoom — not on HotelBooking
 export const RESERVATIONS_ENDPOINTS = {
   adminReservations: `${API_V1}/reservations/admin/reservations/`,

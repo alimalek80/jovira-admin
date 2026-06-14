@@ -9,6 +9,7 @@ import { FINANCE_ENDPOINTS, INVENTORY_ENDPOINTS } from "@/lib/api-endpoints";
 import { mapBackendValidationErrors, type FieldErrorMap } from "@/lib/forms/backend-errors";
 import { createHotelBooking, type HotelBooking, updateHotelBooking } from "@/lib/api/reservation-services";
 import { listHotelRooms, fetchRoomAvailability, type HotelRoom } from "@/lib/api/hotel-rooms";
+import { listTourists } from "@/lib/api/tourists";
 
 // ---- Schema ----------------------------------------------------------------
 
@@ -34,6 +35,7 @@ const schema = z.object({
   // Notes
   internal_note: z.string(),
   remarks_for_hotel: z.string(),
+  tourists: z.array(z.string()).default([]),
 });
 
 type FormValues = z.infer<typeof schema>;
@@ -110,6 +112,7 @@ function emptyValues(): FormValues {
     hotel_cancellation_number: "",
     internal_note: "",
     remarks_for_hotel: "",
+    tourists: [],
   };
 }
 
@@ -133,6 +136,7 @@ function bookingToValues(booking: HotelBooking): FormValues {
     hotel_cancellation_number: booking.hotelCancellationNumber ?? "",
     internal_note: booking.internalNote ?? "",
     remarks_for_hotel: booking.remarksForHotel ?? "",
+    tourists: booking.tourists?.map(String) ?? [],
   };
 }
 
@@ -180,8 +184,15 @@ export default function HotelBookingForm({
     },
   });
 
+  const touristsQuery = useQuery({
+    queryKey: ["tourists-for-reservation", reservationId],
+    queryFn: async () => listTourists("admin", { reservationId }),
+    staleTime: 30_000,
+  });
+
   const hotelOptions = hotelsQuery.data ?? [];
   const currencyOptions = currenciesQuery.data ?? [];
+  const availableTourists = touristsQuery.data ?? [];
 
   // When editing, resolve the parent hotel from the booked room
   const [resolvedHotelId, setResolvedHotelId] = useState<string>("");
@@ -307,6 +318,7 @@ export default function HotelBookingForm({
         hotel_cancellation_number: payload.hotel_cancellation_number,
         internal_note: payload.internal_note,
         remarks_for_hotel: payload.remarks_for_hotel,
+        tourists: payload.tourists.map(Number).filter((n) => Number.isFinite(n) && n > 0),
       };
 
       if (booking?.id) {
@@ -497,6 +509,70 @@ export default function HotelBookingForm({
         {values.status === "CANCELLED" ? (
           <p className="mt-1 text-[11px] text-amber-600">Saving as Cancelled will restore room availability.</p>
         ) : null}
+      </div>
+
+      {/* ---- Section: Assigned Tourists ---- */}
+      <SectionHeading title="Assigned Tourists" />
+
+      <div className="sm:col-span-2">
+        <label className="mb-2 block text-[11px] font-medium text-slate-600">
+          Assign Tourists to this Room
+        </label>
+        
+        {(() => {
+          const ROOM_CAPACITY_MAP: Record<string, number> = { SINGLE: 1, DOUBLE: 2, TRIPLE: 3, FAMILY: 4, SUITE: 4 };
+          const baseCapacity = selectedRoom ? (ROOM_CAPACITY_MAP[selectedRoom.room_type] ?? 2) : 2;
+          const maxCapacity = (Number.isFinite(qty) ? qty : 0) * baseCapacity;
+          const currentCount = values.tourists.length;
+
+          return (
+            <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
+              <div className="mb-3 flex items-center justify-between">
+                <span className="text-xs font-semibold text-slate-700">Select Tourists</span>
+                <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full ${currentCount > maxCapacity ? "bg-red-100 text-red-700" : currentCount === maxCapacity ? "bg-emerald-100 text-emerald-700" : "bg-slate-200 text-slate-700"}`}>
+                  {currentCount} / {maxCapacity} Assigned
+                </span>
+              </div>
+              
+              {touristsQuery.isLoading ? (
+                <p className="text-xs text-slate-500">Loading tourists...</p>
+              ) : availableTourists.length === 0 ? (
+                <p className="text-xs text-slate-500">No tourists found for this reservation.</p>
+              ) : (
+                <div className="grid gap-2 sm:grid-cols-2 md:grid-cols-3">
+                  {availableTourists.map((t) => {
+                    const tid = String(t.id);
+                    const isSelected = values.tourists.includes(tid);
+                    const isDisabled = !isSelected && currentCount >= maxCapacity;
+                    return (
+                      <label key={t.id} className={`flex items-start gap-2 rounded border p-2 ${isSelected ? "border-amber-300 bg-amber-50" : isDisabled ? "border-slate-100 opacity-50 cursor-not-allowed" : "border-slate-200 bg-white hover:border-slate-300 cursor-pointer"}`}>
+                        <input
+                          type="checkbox"
+                          className="mt-0.5"
+                          checked={isSelected}
+                          disabled={isDisabled}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              update("tourists", [...values.tourists, tid]);
+                            } else {
+                              update("tourists", values.tourists.filter((id) => id !== tid));
+                            }
+                          }}
+                        />
+                        <span className="text-xs font-medium text-slate-800 line-clamp-2">
+                          {t.first_name} {t.last_name}
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+              )}
+              {currentCount > maxCapacity ? (
+                <p className="mt-2 text-[11px] text-red-600">You have selected more tourists than the room's maximum capacity.</p>
+              ) : null}
+            </div>
+          );
+        })()}
       </div>
 
       {/* ---- Section 2: Financials ---- */}

@@ -20,5 +20,6 @@ export default async function DashboardLayout({
     redirect("/login?error=access_denied");
   }
 
-  return <DashboardShell>{children}</DashboardShell>;
+  
+  return <DashboardShell user={currentUser}>{children}</DashboardShell>;
 }

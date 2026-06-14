@@ -28,6 +28,7 @@ export type HotelBooking = {
   // Notes
   internalNote: string;
   remarksForHotel: string;
+  tourists: number[];
 };
 
 export type HotelBookingInput = {
@@ -49,6 +50,7 @@ export type HotelBookingInput = {
   hotel_cancellation_number?: string;
   internal_note?: string;
   remarks_for_hotel?: string;
+  tourists?: number[];
 };
 
 export type TransferService = {
@@ -313,6 +315,7 @@ function normalizeHotelBooking(row: unknown, reservationId?: number): HotelBooki
     hotelCancellationNumber: String(value.hotel_cancellation_number ?? ""),
     internalNote: String(value.internal_note ?? ""),
     remarksForHotel: String(value.remarks_for_hotel ?? ""),
+    tourists: normalizeList<unknown>(value.tourists).map((item) => getId(item)).filter((item): item is number => item !== null),
   };
 }
 

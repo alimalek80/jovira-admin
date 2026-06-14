@@ -114,13 +114,16 @@ export async function POST(request: Request) {
     const refreshToken = getToken(payload, "refresh");
 
     if (!accessToken) {
+      console.error("[login] No access token in backend response:", JSON.stringify(payload));
       return NextResponse.json(
         { message: "Login succeeded but access token is missing in response." },
         { status: 502 }
       );
     }
 
+    console.log("[login] Got access token, fetching user profile...");
     const currentUser = await fetchCurrentUser(accessToken);
+    console.log("[login] fetchCurrentUser result:", JSON.stringify(currentUser));
 
     if (!currentUser) {
       return NextResponse.json(
@@ -129,6 +132,7 @@ export async function POST(request: Request) {
       );
     }
 
+    console.log("[login] canAccessAdminApp:", currentUser.role, "is_staff:", currentUser.is_staff, "is_superuser:", currentUser.is_superuser);
     if (!canAccessAdminApp(currentUser)) {
       return NextResponse.json(
         { message: "Only staff and admin users can access this app." },
