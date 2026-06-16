@@ -41,7 +41,7 @@ export default function DashboardShell({ children, user }: DashboardShellProps) 
         </div>
 
         {/* Scrollable nav - Passing the user role here */}
-        <DashboardSidebarNav collapsed={collapsed} userRole={user?.role as string} />
+        <DashboardSidebarNav collapsed={collapsed} user={user} />
 
         {/* Collapse toggle */}
         <div className="shrink-0 border-t border-slate-800 p-2">
