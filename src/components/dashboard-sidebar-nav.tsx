@@ -17,15 +17,13 @@ import {
   Globe,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import { canAccessAdminRoute } from "@/lib/auth/roles";
 import type { AuthenticatedUser } from "@/lib/auth/types";
-
-type AdminRole = "ADMIN" | "SALES" | "RESERVATION" | "INVENTORY" | "FINANCE";
 
 type NavigationItem = {
   href: string;
   label: string;
   icon: LucideIcon;
-  allowedRoles?: AdminRole[];
 };
 
 type NavigationGroup = {
@@ -45,13 +43,11 @@ const navigationGroups: NavigationGroup[] = [
         href: "/reservations",
         label: "Reservations",
         icon: CalendarCheck,
-        allowedRoles: ["SALES", "RESERVATION", "FINANCE"],
       },
       {
         href: "/agencies",
         label: "Agencies",
         icon: Building2,
-        allowedRoles: ["SALES", "RESERVATION", "FINANCE"],
       },
     ],
   },
@@ -62,37 +58,31 @@ const navigationGroups: NavigationGroup[] = [
         href: "/hotels",
         label: "Hotels",
         icon: BedDouble,
-        allowedRoles: ["INVENTORY"],
       },
       {
         href: "/hotel-rooms",
         label: "Hotel Rooms",
         icon: DoorOpen,
-        allowedRoles: ["INVENTORY"],
       },
       {
         href: "/flights",
         label: "Flights",
         icon: Plane,
-        allowedRoles: ["INVENTORY"],
       },
       {
         href: "/tour-packages",
         label: "Tour Packages",
         icon: Map,
-        allowedRoles: ["INVENTORY", "SALES"],
       },
       {
         href: "/excursions",
         label: "Excursions",
         icon: Mountain,
-        allowedRoles: ["INVENTORY"],
       },
       {
         href: "/transfers",
         label: "Transfers",
         icon: Car,
-        allowedRoles: ["INVENTORY"],
       },
     ],
   },
@@ -103,13 +93,11 @@ const navigationGroups: NavigationGroup[] = [
         href: "/excursion-services",
         label: "Excursion Services",
         icon: Wrench,
-        allowedRoles: ["INVENTORY"],
       },
       {
         href: "/transfer-providers",
         label: "Transfer Providers",
         icon: Truck,
-        allowedRoles: ["INVENTORY", "FINANCE"],
       },
     ],
   },
@@ -120,26 +108,17 @@ const navigationGroups: NavigationGroup[] = [
         href: "/web-sections",
         label: "Web Sections",
         icon: Globe,
-        allowedRoles: ["ADMIN"],
       },
     ],
   },
 ];
 
 function isItemActive(pathname: string, href: string): boolean {
-  if (href === "/") return pathname === "/";
+  if (href === "/") {
+    return pathname === "/";
+  }
+
   return pathname === href || pathname.startsWith(`${href}/`);
-}
-
-function isAdminLikeUser(user: AuthenticatedUser): boolean {
-  return Boolean(user.is_superuser || user.is_staff || user.role === "ADMIN");
-}
-
-function canSeeNavigationItem(user: AuthenticatedUser, item: NavigationItem): boolean {
-  if (!item.allowedRoles) return true;
-  if (isAdminLikeUser(user)) return true;
-
-  return item.allowedRoles.includes(user.role as AdminRole);
 }
 
 type DashboardSidebarNavProps = {
@@ -156,16 +135,18 @@ export default function DashboardSidebarNav({
   const filteredGroups = navigationGroups
     .map((group) => ({
       ...group,
-      items: group.items.filter((item) => canSeeNavigationItem(user, item)),
+      items: group.items.filter((item) => canAccessAdminRoute(user, item.href)),
     }))
     .filter((group) => group.items.length > 0);
 
   return (
-    <nav className="min-h-0 flex-1 overflow-y-auto py-4 px-2">
+    <nav className="min-h-0 flex-1 overflow-y-auto px-2 py-4">
       {filteredGroups.map((group, groupIndex) => (
         <div key={group.label} className="mb-4 last:mb-0">
           {collapsed ? (
-            groupIndex > 0 ? <div className="mx-2 mb-3 h-px bg-slate-800" /> : null
+            groupIndex > 0 ? (
+              <div className="mx-2 mb-3 h-px bg-slate-800" />
+            ) : null
           ) : (
             <p className="mb-1.5 px-3 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">
               {group.label}
