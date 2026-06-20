@@ -1060,17 +1060,17 @@ export const FlightTicketManager = forwardRef<
   );
 
   // Full inventory snapshot per flight for resolving missing price/date on saved tickets
-  const flightInventoryById = useMemo(
-    () =>
-      (flightOptionsQuery.data ?? []).reduce<Record<string, typeof flightOptionsQuery.data[number]>>(
-        (accumulator, option) => {
-          accumulator[option.id] = option;
-          return accumulator;
-        },
-        {}
-      ),
-    [flightOptionsQuery.data]
-  );
+  const flightInventoryById = useMemo(() => {
+    const options = flightOptionsQuery.data ?? [];
+
+    return options.reduce<Record<string, (typeof options)[number]>>(
+      (accumulator, option) => {
+        accumulator[String(option.id)] = option;
+        return accumulator;
+      },
+      {}
+    );
+  }, [flightOptionsQuery.data]);
 
   const touristLabelById = useMemo(
     () =>

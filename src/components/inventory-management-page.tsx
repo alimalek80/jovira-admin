@@ -27,6 +27,8 @@ type SelectOption = {
 
 type SelectSource = "currencies";
 
+type FormValue = string | string[] | File | File[];
+
 type FormField = {
   key: string;
   label: string;
@@ -431,7 +433,7 @@ function enrichLocationTranslations(
     return payload;
   }
 
-  const nextPayload: Record<string, string | number> = { ...payload };
+  const nextPayload: Record<string, string | number | null> = { ...payload };
 
   const sourcePairs: Array<[string, string[]]> = isHotelEndpoint || isExcursionEndpoint
     ? [
@@ -465,6 +467,16 @@ function enrichLocationTranslations(
   return nextPayload;
 }
 
+function getTextValue(value: FormValue | undefined): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function getStringArrayValue(value: FormValue | undefined): string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string")
+    : [];
+}
+
 function endpointById(endpoint: string, id: number | string) {
   return `${endpoint}${id}/`;
 }
@@ -475,9 +487,9 @@ export default function InventoryManagementPage({ config }: { config: InventoryP
   const [error, setError] = useState("");
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<InventoryItem | null>(null);
-  const [formState, setFormState] = useState<Record<string, string>>(() =>
-    toFormState(null, config.formFields)
-  );
+  const [formState, setFormState] = useState<Record<string, FormValue>>(() =>
+  toFormState(null, config.formFields)
+);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [currencyOptions, setCurrencyOptions] = useState<SelectOption[]>([]);
   const [exchangeRates, setExchangeRates] = useState<ExchangeRateRecord[]>([]);
@@ -565,7 +577,7 @@ export default function InventoryManagementPage({ config }: { config: InventoryP
     }
 
     setFormState((previous) => {
-      if (previous.currency && previous.currency.trim().length > 0) {
+      if (typeof previous.currency === "string" && previous.currency.trim().length > 0) {
         return previous;
       }
 
@@ -588,7 +600,10 @@ export default function InventoryManagementPage({ config }: { config: InventoryP
 
       return {
         ...nextState,
-        currency: previous.currency?.trim() ? previous.currency : currencyOptions[0].value,
+        currency:
+          typeof previous.currency === "string" && previous.currency.trim().length > 0
+            ? previous.currency
+            : currencyOptions[0].value,
       };
     });
     // Revoke only object URLs created by us (blob:), not backend media URLs
@@ -725,15 +740,17 @@ export default function InventoryManagementPage({ config }: { config: InventoryP
     try {
       setIsSubmitting(true);
       setError("");
+      const currentCurrency = getTextValue(formState.currency);
+
       const submitState =
         hasCurrencySourceField &&
         currencyOptions.length > 0 &&
-        !(formState.currency ?? "").trim()
+        !currentCurrency
           ? { ...formState, currency: currencyOptions[0].value }
           : formState;
 
       // cost_price cross-field validation
-      const costPriceStr = (submitState.cost_price ?? "").trim();
+      const costPriceStr = getTextValue(submitState.cost_price);
       if (costPriceStr.length > 0) {
         const costNum = Number(costPriceStr);
         if (!Number.isNaN(costNum)) {
@@ -744,13 +761,13 @@ export default function InventoryManagementPage({ config }: { config: InventoryP
           const pubKey = config.formFields.some((f) => f.key === "price") ? "price"
             : config.formFields.some((f) => f.key === "public_price") ? "public_price" : null;
           if (pubKey) {
-            const pubNum = Number((submitState[pubKey] ?? "").trim());
+            const pubNum = Number(getTextValue(submitState[pubKey]));
             if (!Number.isNaN(pubNum) && pubNum > 0 && costNum >= pubNum) {
               setError("Cost price must be lower than the public price to ensure a positive margin.");
               return;
             }
           }
-          const agencyNum = Number((submitState.agency_price ?? "").trim());
+          const agencyNum = Number(getTextValue(submitState.agency_price));
           if (!Number.isNaN(agencyNum) && agencyNum > 0 && costNum >= agencyNum) {
             setError("Cost price must be lower than the agency price to ensure a positive margin.");
             return;
@@ -763,24 +780,26 @@ export default function InventoryManagementPage({ config }: { config: InventoryP
       if (rawPayload instanceof FormData) {
         // For FormData (file uploads): enrich translations by appending to FormData directly
         if (isHotelEndpoint) {
-          const name = (submitState.name ?? "").trim();
-          const city = (submitState.city ?? "").trim();
-          if (!(submitState.name_en ?? "").trim() && name) rawPayload.append("name_en", name);
-          if (!(submitState.name_tr ?? "").trim() && name) rawPayload.append("name_tr", name);
-          if (!(submitState.name_ru ?? "").trim() && name) rawPayload.append("name_ru", name);
-          if (!(submitState.city_en ?? "").trim() && city) rawPayload.append("city_en", city);
-          if (!(submitState.city_tr ?? "").trim() && city) rawPayload.append("city_tr", city);
-          if (!(submitState.city_ru ?? "").trim() && city) rawPayload.append("city_ru", city);
+          const name = getTextValue(submitState.name);
+          const city = getTextValue(submitState.city);
+
+          if (!getTextValue(submitState.name_en) && name) rawPayload.append("name_en", name);
+          if (!getTextValue(submitState.name_tr) && name) rawPayload.append("name_tr", name);
+          if (!getTextValue(submitState.name_ru) && name) rawPayload.append("name_ru", name);
+          if (!getTextValue(submitState.city_en) && city) rawPayload.append("city_en", city);
+          if (!getTextValue(submitState.city_tr) && city) rawPayload.append("city_tr", city);
+          if (!getTextValue(submitState.city_ru) && city) rawPayload.append("city_ru", city);
         }
         if (isFlightEndpoint) {
-          const origin = (submitState.origin ?? "").trim();
-          const destination = (submitState.destination ?? "").trim();
-          if (!(submitState.origin_en ?? "").trim() && origin) rawPayload.append("origin_en", origin);
-          if (!(submitState.origin_tr ?? "").trim() && origin) rawPayload.append("origin_tr", origin);
-          if (!(submitState.origin_ru ?? "").trim() && origin) rawPayload.append("origin_ru", origin);
-          if (!(submitState.destination_en ?? "").trim() && destination) rawPayload.append("destination_en", destination);
-          if (!(submitState.destination_tr ?? "").trim() && destination) rawPayload.append("destination_tr", destination);
-          if (!(submitState.destination_ru ?? "").trim() && destination) rawPayload.append("destination_ru", destination);
+          const origin = getTextValue(submitState.origin);
+          const destination = getTextValue(submitState.destination);
+
+          if (!getTextValue(submitState.origin_en) && origin) rawPayload.append("origin_en", origin);
+          if (!getTextValue(submitState.origin_tr) && origin) rawPayload.append("origin_tr", origin);
+          if (!getTextValue(submitState.origin_ru) && origin) rawPayload.append("origin_ru", origin);
+          if (!getTextValue(submitState.destination_en) && destination) rawPayload.append("destination_en", destination);
+          if (!getTextValue(submitState.destination_tr) && destination) rawPayload.append("destination_tr", destination);
+          if (!getTextValue(submitState.destination_ru) && destination) rawPayload.append("destination_ru", destination);
         }
       } else {
         // Plain JSON: use existing translation enrichment logic
@@ -810,7 +829,7 @@ export default function InventoryManagementPage({ config }: { config: InventoryP
       // Extract gallery images before sending to hotel endpoint — they go to /hotel-images/ separately.
       let pendingGalleryFiles: File[] = [];
       if (isHotelEndpoint && payload instanceof FormData) {
-        const raw = formState.gallery_images;
+        const raw: unknown = formState.gallery_images;
         if (Array.isArray(raw) && raw.length > 0) {
           pendingGalleryFiles = raw as File[];
         } else if (raw instanceof File) {
@@ -916,7 +935,7 @@ export default function InventoryManagementPage({ config }: { config: InventoryP
     [config.tableFields, currencyOptions]
   );
 
-  const selectedCurrencyValue = formState.currency?.trim() ?? "";
+  const selectedCurrencyValue = getTextValue(formState.currency);
   const selectedCurrency = useMemo(() => {
     const option = currencyOptions.find((item) => item.value === selectedCurrencyValue);
 
@@ -939,7 +958,7 @@ export default function InventoryManagementPage({ config }: { config: InventoryP
   // Margin display: computed when cost_price and at least one price field are filled
   const marginDisplay = useMemo(() => {
     if (!config.formFields.some((f) => f.key === "cost_price")) return null;
-    const costRaw = (formState.cost_price ?? "").trim();
+    const costRaw = getTextValue(formState.cost_price);
     if (!costRaw) return null;
     const cost = parseFloat(costRaw);
     if (Number.isNaN(cost)) return null;
@@ -949,10 +968,10 @@ export default function InventoryManagementPage({ config }: { config: InventoryP
 
     const items: { label: string; margin: number }[] = [];
     if (pubKey) {
-      const pub = parseFloat((formState[pubKey] ?? "").trim());
+      const pub = parseFloat(getTextValue(formState[pubKey]));
       if (!Number.isNaN(pub) && pub > 0) items.push({ label: "Public", margin: pub - cost });
     }
-    const agency = parseFloat((formState.agency_price ?? "").trim());
+    const agency = parseFloat(getTextValue(formState.agency_price));
     if (!Number.isNaN(agency) && agency > 0) items.push({ label: "Agency", margin: agency - cost });
 
     return items.length > 0 ? { items, currency: selectedCurrency } : null;
@@ -1093,7 +1112,7 @@ export default function InventoryManagementPage({ config }: { config: InventoryP
                     {field.type === "textarea" ? (
                       <textarea
                         id={field.key}
-                        value={formState[field.key] ?? ""}
+                        value={getTextValue(formState[field.key])}
                         onChange={(event) =>
                           setFormState((previous) => ({ ...previous, [field.key]: event.target.value }))
                         }
@@ -1106,7 +1125,7 @@ export default function InventoryManagementPage({ config }: { config: InventoryP
                       <>
                         <select
                           id={field.key}
-                          value={formState[field.key] ?? (field.multi ? [] : "")}
+                          value={field.multi ? getStringArrayValue(formState[field.key]) : getTextValue(formState[field.key])}
                           onChange={(event) => {
                             if (field.multi) {
                               const options = Array.from(event.target.selectedOptions).map((o) => o.value);
@@ -1184,7 +1203,7 @@ export default function InventoryManagementPage({ config }: { config: InventoryP
                         id={field.key}
                         type={field.type}
                         step={field.step}
-                        value={formState[field.key] ?? ""}
+                        value={getTextValue(formState[field.key])}
                         onChange={(event) =>
                           setFormState((previous) => ({ ...previous, [field.key]: event.target.value }))
                         }

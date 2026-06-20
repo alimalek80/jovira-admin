@@ -38,6 +38,7 @@ import {
   updateHotelBooking,
   updateFlightTicket,
 } from "@/lib/api/reservation-services";
+import { listHotelRooms } from "@/lib/api/hotel-rooms";
 
 
 type ReservationRecord = {
@@ -718,9 +719,9 @@ async function prefillReservationServicesFromTourPackage(args: {
   ]);
   const selectedFlights = pickArrivalDepartureFlights(flightDetailsAll);
 
-  const existingHotelIds = new Set(existingHotels.map((booking) => booking.hotelId));
+  const existingHotelRoomIds = new Set(existingHotels.map((booking) => booking.hotelRoomId));
   const existingTransferIds = new Set(existingTransfers.map((service) => service.transferCatalogId));
-  // key = "flightId-touristId" to detect per-tourist duplicates
+
   const existingTicketKeys = new Set(
     existingTickets.map((ticket) => `${ticket.flightId}-${ticket.touristId}`)
   );
@@ -730,51 +731,65 @@ async function prefillReservationServicesFromTourPackage(args: {
   let createdTickets = 0;
 
   for (const hotelId of tourPackage.hotels) {
-    if (existingHotelIds.has(String(hotelId))) {
+    const parsedHotelId = Number(hotelId);
+
+    if (!Number.isFinite(parsedHotelId) || parsedHotelId <= 0) {
       continue;
     }
 
-    const hotelDetail = await axiosInstance
-      .get(`${INVENTORY_ENDPOINTS.adminHotels}${hotelId}/`)
-      .then((response) => response.data as Record<string, unknown>)
-      .catch(() => null);
+    const hotelRooms = await listHotelRooms(parsedHotelId);
+
+    const selectedRoom =
+      hotelRooms.find(
+        (room) =>
+          room.date_from <= checkInDate &&
+          room.date_to >= checkOutDate &&
+          room.availability_count > 0
+      ) ??
+      hotelRooms.find((room) => room.availability_count > 0) ??
+      hotelRooms[0];
+
+    if (!selectedRoom) {
+      continue;
+    }
+
+    if (existingHotelRoomIds.has(selectedRoom.id)) {
+      continue;
+    }
 
     const hotelBasePriceRaw =
       args.ownerType === "AGENCY"
-        ? hotelDetail?.agency_price ?? hotelDetail?.public_price ?? hotelDetail?.price ?? "0"
-        : hotelDetail?.public_price ?? hotelDetail?.price ?? hotelDetail?.agency_price ?? "0";
-
-    const hotelCurrencyRaw = hotelDetail?.currency;
-    const hotelCurrency = resolveCurrencyNumericId(hotelCurrencyRaw, args.currencyCodeById);
-    const hotelCurrencyCode =
-      typeof hotelCurrencyRaw === "string"
-        ? normalizeCurrencyCode(hotelCurrencyRaw)
-        : hotelCurrencyRaw && typeof hotelCurrencyRaw === "object"
-          ? normalizeCurrencyCode(
-              (hotelCurrencyRaw as Record<string, unknown>).code ??
-                (hotelCurrencyRaw as Record<string, unknown>).currency_code ??
-                (hotelCurrencyRaw as Record<string, unknown>).iso_code
-            )
-          : "";
+        ? selectedRoom.agency_price ?? selectedRoom.public_price ?? "0"
+        : selectedRoom.public_price ?? selectedRoom.agency_price ?? "0";
 
     const convertedHotel = await convertToReservationCurrency({
       amount: String(hotelBasePriceRaw ?? "0"),
-      sourceCurrencyId: hotelCurrency,
-      sourceCurrencyCode: hotelCurrencyCode,
+      sourceCurrencyId: selectedRoom.currency,
+      sourceCurrencyCode: args.currencyCodeById?.[String(selectedRoom.currency)] ?? "",
       reservationCurrencyId: args.reservationCurrencyId,
       currencyCodeById: args.currencyCodeById,
     });
 
     await createHotelBooking("admin", {
       reservation: args.reservationId,
-      hotel: hotelId,
+      hotel_room: selectedRoom.id,
       check_in_date: checkInDate,
       check_out_date: checkOutDate,
+      quantity: 1,
+      status: "PENDING",
+      is_paid: false,
+      selling_currency: Number(convertedHotel.currencyId) || selectedRoom.currency,
       price: convertedHotel.amount,
-      currency: convertedHotel.currencyId,
-      paid: false,
-      is_paid_cancelation: false,
-      is_paid_cancellation: false,
+      agency_price: convertedHotel.amount,
+      cost_currency: selectedRoom.currency,
+      cost: selectedRoom.cost_price ?? "0.00",
+      cross_currency_rate: "1.0000000000",
+      confirm_booking_number: "",
+      agent_confirmation_number: "",
+      hotel_cancellation_number: "",
+      internal_note: "Created from tour package prefill.",
+      remarks_for_hotel: "",
+      tourists: [],
     });
 
     createdHotels += 1;
@@ -969,38 +984,42 @@ async function syncReservationServiceCurrencies(args: {
     }
   }
 
-  if (hotels.length > 0) {
-    const hotelIds = hotels
-      .map((hotel) => Number.parseInt(hotel.hotelId, 10))
+    if (hotels.length > 0) {
+    const hotelRoomIds = hotels
+      .map((hotel) => hotel.hotelRoomId)
       .filter((id) => Number.isFinite(id));
-    const uniqueHotelIds = Array.from(new Set(hotelIds));
 
-    const hotelDetails = await Promise.all(
-      uniqueHotelIds.map(async (hotelId) => {
+    const uniqueHotelRoomIds = Array.from(new Set(hotelRoomIds));
+
+    const hotelRoomDetails = await Promise.all(
+      uniqueHotelRoomIds.map(async (hotelRoomId) => {
         const row = await axiosInstance
-          .get(`${INVENTORY_ENDPOINTS.adminHotels}${hotelId}/`)
+          .get(`${INVENTORY_ENDPOINTS.adminHotelRooms}${hotelRoomId}/`)
           .then((response) => response.data as Record<string, unknown>)
           .catch(() => null);
-        return [hotelId, row] as const;
+
+        return [hotelRoomId, row] as const;
       })
     );
-    const hotelById = new Map<number, Record<string, unknown> | null>(hotelDetails);
+
+    const hotelRoomById = new Map<number, Record<string, unknown> | null>(hotelRoomDetails);
 
     for (const hotel of hotels) {
-      const hotelId = Number.parseInt(hotel.hotelId, 10);
-      const detail = Number.isFinite(hotelId) ? hotelById.get(hotelId) : null;
+      const detail = hotelRoomById.get(hotel.hotelRoomId) ?? null;
 
       const hotelPrice = Number.parseFloat(hotel.price ?? "");
       const fallbackPriceRaw =
         args.ownerType === "AGENCY"
-          ? detail?.agency_price ?? detail?.public_price ?? detail?.price
-          : detail?.public_price ?? detail?.price ?? detail?.agency_price;
+          ? detail?.agency_price ?? detail?.public_price
+          : detail?.public_price ?? detail?.agency_price;
+
       const fallbackPrice = Number.parseFloat(String(fallbackPriceRaw ?? ""));
-      const sourceAmount = Number.isFinite(hotelPrice) && hotelPrice > 0
-        ? String(hotel.price)
-        : Number.isFinite(fallbackPrice)
-          ? fallbackPrice.toFixed(2)
-          : "0.00";
+      const sourceAmount =
+        Number.isFinite(hotelPrice) && hotelPrice > 0
+          ? String(hotel.price)
+          : Number.isFinite(fallbackPrice)
+            ? fallbackPrice.toFixed(2)
+            : "0.00";
 
       const detailCurrencyRaw = detail?.currency;
       const detailCurrencyId = resolveCurrencyNumericId(detailCurrencyRaw, args.currencyCodeById);
@@ -1015,10 +1034,11 @@ async function syncReservationServiceCurrencies(args: {
               )
             : "";
 
-      const sourceCurrencyId = hotel.currencyId
-        ? resolveCurrencyNumericId(hotel.currencyId, args.currencyCodeById)
+      const sourceCurrencyId = hotel.sellingCurrencyId
+        ? resolveCurrencyNumericId(hotel.sellingCurrencyId, args.currencyCodeById)
         : detailCurrencyId;
-      const sourceCurrencyCode = normalizeCurrencyCode(hotel.currencyId) || detailCurrencyCode;
+
+      const sourceCurrencyCode = normalizeCurrencyCode(hotel.sellingCurrencyId) || detailCurrencyCode;
 
       const converted = await convertToReservationCurrency({
         amount: sourceAmount,
@@ -1028,10 +1048,11 @@ async function syncReservationServiceCurrencies(args: {
         currencyCodeById: args.currencyCodeById,
       });
 
-      await updateHotelBooking("admin", hotel.id, {
+        await updateHotelBooking("admin", hotel.id, {
         reservation: args.reservationId,
+        selling_currency: Number(converted.currencyId) || sourceCurrencyId || null,
         price: converted.amount,
-        currency: converted.currencyId,
+        agency_price: converted.amount,
       });
     }
   }

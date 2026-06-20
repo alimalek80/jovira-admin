@@ -250,28 +250,47 @@ function normalizeComponentOptions(
   payload: unknown,
   labelBuilder?: (row: Record<string, unknown>, fallbackId: string) => string
 ): ComponentOption[] {
-  return normalizeRows(payload)
-    .map((row) => {
-      const idValue = parseNumericId(row.id);
-      if (idValue === null) {
-        return null;
-      }
+  const options: ComponentOption[] = [];
 
-      const id = String(idValue);
-      const label = labelBuilder?.(row, id) ?? normalizeOptionLabel(row, id);
-      return {
-        id,
-        label,
-        costPrice: toCostPrice(row),
-        currencyId: toCurrencyId(row.currency),
-        publicPrice: toPriceNumber(row.public_price ?? row.price) ?? undefined,
-        agencyPrice: toPriceNumber(row.agency_price) ?? undefined,
-        departureDate: typeof row.departure_time === "string" ? row.departure_time : undefined,
-        arrivalDate: typeof row.arrival_time === "string" ? row.arrival_time : undefined,
-      };
-    })
-    .filter((option): option is ComponentOption => Boolean(option))
-    .sort((left, right) => left.label.localeCompare(right.label));
+  for (const row of normalizeRows(payload)) {
+    const idValue = parseNumericId(row.id);
+
+    if (idValue === null) {
+      continue;
+    }
+
+    const id = String(idValue);
+    const label = labelBuilder?.(row, id) ?? normalizeOptionLabel(row, id);
+
+    const option: ComponentOption = {
+      id,
+      label,
+      costPrice: toCostPrice(row),
+      currencyId: toCurrencyId(row.currency),
+    };
+
+    const publicPrice = toPriceNumber(row.public_price ?? row.price);
+    if (publicPrice !== null) {
+      option.publicPrice = publicPrice;
+    }
+
+    const agencyPrice = toPriceNumber(row.agency_price);
+    if (agencyPrice !== null) {
+      option.agencyPrice = agencyPrice;
+    }
+
+    if (typeof row.departure_time === "string") {
+      option.departureDate = row.departure_time;
+    }
+
+    if (typeof row.arrival_time === "string") {
+      option.arrivalDate = row.arrival_time;
+    }
+
+    options.push(option);
+  }
+
+  return options.sort((left, right) => left.label.localeCompare(right.label));
 }
 
 export async function createTourPackage(payload: TourPackagePayload): Promise<AdminTourPackage> {
@@ -423,17 +442,33 @@ export async function convertCurrencyAmount(params: {
     return payload;
   }
 
-  if (typeof payload === "string") {
+    if (typeof payload === "string") {
     const parsed = Number.parseFloat(payload);
     return Number.isFinite(parsed) ? parsed : params.amount;
   }
 
+  if (typeof payload === "number") {
+    return Number.isFinite(payload) ? payload : params.amount;
+  }
+
+  if (!payload || typeof payload !== "object") {
+    return params.amount;
+  }
+
+  const conversionPayload = payload as {
+    converted_amount?: unknown;
+    convertedAmount?: unknown;
+    amount?: unknown;
+    result?: unknown;
+    value?: unknown;
+  };
+
   const candidate =
-    payload?.converted_amount ??
-    payload?.convertedAmount ??
-    payload?.amount ??
-    payload?.result ??
-    payload?.value;
+    conversionPayload.converted_amount ??
+    conversionPayload.convertedAmount ??
+    conversionPayload.amount ??
+    conversionPayload.result ??
+    conversionPayload.value;
 
   if (typeof candidate === "number" && Number.isFinite(candidate)) {
     return candidate;

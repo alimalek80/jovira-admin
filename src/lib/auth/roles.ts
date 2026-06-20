@@ -24,6 +24,10 @@ const ADMIN_ROUTE_ACCESS_RULES: readonly RouteAccessRule[] = [
     allowedRoles: ["SALES", "RESERVATION", "FINANCE"],
   },
   {
+    path: "/work-desk",
+    allowedRoles: ["ADMIN", "RESERVATION"],
+  },
+  {
     path: "/agencies",
     allowedRoles: ["SALES", "RESERVATION", "FINANCE"],
   },

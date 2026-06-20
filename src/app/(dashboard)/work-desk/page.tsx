@@ -20,6 +20,9 @@ type WorkDeskReservation = {
   currency: number | null;
   status: string;
   agency: number | null;
+  assigned_to: number | null;
+  assigned_to_email: string | null;
+  assigned_to_name: string | null;
   tour_package: number | null;
   tourists: unknown[];
   hotel_bookings: WorkDeskHotelBooking[];
@@ -33,6 +36,12 @@ type WorkDeskFetchResult = {
   status: number | null;
   data: WorkDeskReservation[];
   error: string | null;
+};
+
+type WorkDeskPageProps = {
+  searchParams?: Promise<{
+    only_me?: string;
+  }>;
 };
 
 function stripBearerPrefix(token: string) {
@@ -72,7 +81,8 @@ function getStatusBadgeClass(status: string) {
 }
 
 async function fetchWorkDeskReservations(
-  accessToken: string | undefined
+  accessToken: string | undefined,
+  queryString = ""
 ): Promise<WorkDeskFetchResult> {
   if (!accessToken) {
     return {
@@ -84,7 +94,11 @@ async function fetchWorkDeskReservations(
   }
 
   try {
-    const response = await fetch(RESERVATIONS_ENDPOINTS.adminWorkDesk, {
+    const endpoint = queryString
+      ? `${RESERVATIONS_ENDPOINTS.adminWorkDesk}?${queryString}`
+      : RESERVATIONS_ENDPOINTS.adminWorkDesk;
+
+    const response = await fetch(endpoint, {
       method: "GET",
       headers: {
         Authorization: `Bearer ${stripBearerPrefix(accessToken)}`,
@@ -129,10 +143,21 @@ async function fetchWorkDeskReservations(
   }
 }
 
-export default async function WorkDeskPage() {
+export default async function WorkDeskPage({ searchParams }: WorkDeskPageProps) {
   const cookieStore = await cookies();
   const accessToken = cookieStore.get("access")?.value;
-  const workDeskResult = await fetchWorkDeskReservations(accessToken);
+  const resolvedSearchParams = await searchParams;
+
+  const queryParams = new URLSearchParams();
+
+  if (resolvedSearchParams?.only_me) {
+    queryParams.set("only_me", resolvedSearchParams.only_me);
+  }
+
+  const workDeskResult = await fetchWorkDeskReservations(
+    accessToken,
+    queryParams.toString()
+  );
 
   const reservations = workDeskResult.data;
 
