@@ -39,6 +39,7 @@ import {
   updateFlightTicket,
 } from "@/lib/api/reservation-services";
 import { listHotelRooms } from "@/lib/api/hotel-rooms";
+import ActivityTimeline from "@/components/reservations/ActivityTimeline";
 
 
 type ReservationRecord = {
@@ -115,6 +116,7 @@ const TAB_LABELS = [
   "Flight Tickets",
   "Other",
   "Excursion",
+  "Activity",
 ] as const;
 
 type TabLabel = (typeof TAB_LABELS)[number];
@@ -1818,6 +1820,8 @@ function ReservationTabsPanel({
           isAddOpen={isAddModalOpen}
           onCloseAdd={() => setIsAddModalOpen(false)}
         />
+      ) : activeTab === "Activity" ? (
+        <ActivityTimeline reservationId={reservationId ?? 0} />
       ) : (
         <div className="min-h-0 flex-1 overflow-auto p-4">
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
