@@ -396,6 +396,70 @@ async function listByReservation<T>(
   }
 }
 
+export type ReservationActivityAction =
+  | "CREATED"
+  | "UPDATED"
+  | "STATUS_CHANGED"
+  | "FINANCE_LOCKED"
+  | "FINANCE_UNLOCKED"
+  | "TOURIST_ADDED"
+  | "HOTEL_BOOKING_ADDED"
+  | "HOTEL_BOOKING_UPDATED"
+  | "FLIGHT_TICKET_ADDED"
+  | "TRANSFER_SERVICE_ADDED"
+  | "EXCURSION_BOOKING_ADDED"
+  | "EXCURSION_SERVICE_ADDED";
+
+export type ReservationActivityEntry = {
+  id: number;
+  reservation: number;
+  reservationNumber: string;
+  actor: number | null;
+  actorEmail: string | null;
+  actorRole: string | null;
+  action: ReservationActivityAction;
+  message: string;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+};
+
+function normalizeReservationActivityEntry(row: unknown): ReservationActivityEntry | null {
+  if (!row || typeof row !== "object") return null;
+
+  const value = row as Row;
+  const id = getId(value.id);
+  if (!id) return null;
+
+  return {
+    id,
+    reservation: getId(value.reservation) ?? 0,
+    reservationNumber: String(value.reservation_number ?? ""),
+    actor: getId(value.actor),
+    actorEmail: typeof value.actor_email === "string" ? value.actor_email : null,
+    actorRole: typeof value.actor_role === "string" ? value.actor_role : null,
+    action: String(value.action ?? "UPDATED") as ReservationActivityAction,
+    message: String(value.message ?? ""),
+    metadata:
+      typeof value.metadata === "object" && value.metadata !== null
+        ? (value.metadata as Record<string, unknown>)
+        : {},
+    createdAt: typeof value.created_at === "string" ? value.created_at : "",
+  };
+}
+
+export async function listReservationActivity(
+  reservationId: number
+): Promise<ReservationActivityEntry[]> {
+  const response = await axiosInstance.get(
+    RESERVATIONS_ENDPOINTS.adminReservationActivityLogs,
+    { params: { reservation: reservationId } }
+  );
+
+  return normalizeList<unknown>(response.data)
+    .map(normalizeReservationActivityEntry)
+    .filter((row): row is ReservationActivityEntry => row !== null);
+}
+
 export async function listHotelBookings(scope: ApiScope, reservationId: number): Promise<HotelBooking[]> {
   return listByReservation(
     resolveHotelBookingsEndpoint(scope),
