@@ -2,6 +2,8 @@ import { cookies } from "next/headers";
 import Link from "next/link";
 import { RESERVATIONS_ENDPOINTS } from "@/lib/api-endpoints";
 import WorkDeskFilters from "@/components/work-desk/WorkDeskFilters";
+import TakeReservationButton from "@/components/work-desk/TakeReservationButton";
+
 
 type WorkDeskHotelBooking = {
   id: number;
@@ -263,6 +265,9 @@ export default async function WorkDeskPage({ searchParams }: WorkDeskPageProps) 
                   <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
                     Finance
                   </th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Assigned
+                  </th>
                   <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">
                     Action
                   </th>
@@ -318,13 +323,19 @@ export default async function WorkDeskPage({ searchParams }: WorkDeskPageProps) 
                         {reservation.is_locked_by_finance ? "Locked" : "Open"}
                       </span>
                     </td>
+                    <td className="whitespace-nowrap px-4 py-4 text-slate-600">
+                      {reservation.assigned_to_name || reservation.assigned_to_email || "Unassigned"}
+                    </td>
                     <td className="whitespace-nowrap px-4 py-4 text-right">
-                      <Link
-                        href="/reservations"
-                        className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
-                      >
-                        Open
-                      </Link>
+                      <div className="flex items-center justify-end gap-2">
+                        <TakeReservationButton reservationId={reservation.id} />
+                        <Link
+                          href="/reservations"
+                          className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
+                        >
+                          Open
+                        </Link>
+                      </div>
                     </td>
                   </tr>
                 ))}

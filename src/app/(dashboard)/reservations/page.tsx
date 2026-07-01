@@ -1141,8 +1141,8 @@ function ReservationFormPanel({
                   type="button"
                   onClick={() => onChange("ownerType", "AGENCY")}
                   className={`rounded-md border px-2 py-1 text-[11px] font-semibold leading-tight transition ${form.ownerType === "AGENCY"
-                      ? "border-[#0f2347] bg-[#0f2347] text-white"
-                      : "border-slate-300 bg-white text-slate-700 hover:bg-slate-100"
+                    ? "border-[#0f2347] bg-[#0f2347] text-white"
+                    : "border-slate-300 bg-white text-slate-700 hover:bg-slate-100"
                     }`}
                 >
                   Agency
@@ -1151,8 +1151,8 @@ function ReservationFormPanel({
                   type="button"
                   onClick={() => onChange("ownerType", "NORMAL")}
                   className={`rounded-md border px-2 py-1 text-[11px] font-semibold leading-tight transition ${form.ownerType === "NORMAL"
-                      ? "border-[#0f2347] bg-[#0f2347] text-white"
-                      : "border-slate-300 bg-white text-slate-700 hover:bg-slate-100"
+                    ? "border-[#0f2347] bg-[#0f2347] text-white"
+                    : "border-slate-300 bg-white text-slate-700 hover:bg-slate-100"
                     }`}
                 >
                   Normal Customer
@@ -1167,8 +1167,8 @@ function ReservationFormPanel({
                   type="button"
                   onClick={() => onChange("bookingMode", "WITH_TOUR_PACKAGE")}
                   className={`rounded-md border px-2 py-1 text-[11px] font-semibold leading-tight transition ${form.bookingMode === "WITH_TOUR_PACKAGE"
-                      ? "border-[#0f2347] bg-[#0f2347] text-white"
-                      : "border-slate-300 bg-white text-slate-700 hover:bg-slate-100"
+                    ? "border-[#0f2347] bg-[#0f2347] text-white"
+                    : "border-slate-300 bg-white text-slate-700 hover:bg-slate-100"
                     }`}
                 >
                   With Tour Package
@@ -1177,8 +1177,8 @@ function ReservationFormPanel({
                   type="button"
                   onClick={() => onChange("bookingMode", "STANDALONE_SERVICES")}
                   className={`rounded-md border px-2 py-1 text-[11px] font-semibold leading-tight transition ${form.bookingMode === "STANDALONE_SERVICES"
-                      ? "border-[#0f2347] bg-[#0f2347] text-white"
-                      : "border-slate-300 bg-white text-slate-700 hover:bg-slate-100"
+                    ? "border-[#0f2347] bg-[#0f2347] text-white"
+                    : "border-slate-300 bg-white text-slate-700 hover:bg-slate-100"
                     }`}
                 >
                   Standalone Services
@@ -1379,6 +1379,9 @@ function ReservationRecordsTable({
   onFinalize,
   canFinalize,
   isFinalizing,
+  onTake,
+  canTake,
+  isTaking,
   ownerLabelById,
   tourPackageLabelById,
   currencyLabelById,
@@ -1391,6 +1394,9 @@ function ReservationRecordsTable({
   onFinalize: () => void;
   canFinalize: boolean;
   isFinalizing: boolean;
+  onTake: () => void;
+  canTake: boolean;
+  isTaking: boolean;
   ownerLabelById: Record<string, string>;
   tourPackageLabelById: Record<string, string>;
   currencyLabelById: Record<string, string>;
@@ -1444,8 +1450,8 @@ function ReservationRecordsTable({
         cell: (info) => (
           <span
             className={`inline-flex rounded-md border px-2 py-0.5 text-[11px] font-medium ${info.row.original.tourPackageId
-                ? "border-slate-200 bg-slate-50 text-slate-700"
-                : "border-amber-200 bg-amber-50 text-amber-700"
+              ? "border-slate-200 bg-slate-50 text-slate-700"
+              : "border-amber-200 bg-amber-50 text-amber-700"
               }`}
           >
             {info.row.original.tourPackageId
@@ -1556,6 +1562,18 @@ function ReservationRecordsTable({
             Work Desk
           </Link>
 
+          <button
+            type="button"
+            onClick={onTake}
+            disabled={!canTake || isTaking}
+            className="inline-flex h-8 items-center gap-1.5 rounded border border-slate-300 bg-white px-3 text-[11px] font-semibold text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M20 6L9 17l-5-5" />
+            </svg>
+            {isTaking ? "Taking..." : "Take"}
+          </button>
+
           <h3 className="ml-1 text-xs font-semibold uppercase tracking-wide text-slate-700">Reservations</h3>
           <div className="ml-auto flex items-center gap-2">
             <span className="text-xs text-slate-500">{rows.length} records</span>
@@ -1608,10 +1626,10 @@ function ReservationRecordsTable({
                     key={row.id}
                     onClick={() => onSelect(row.original)}
                     className={`${isSelected
-                        ? "bg-amber-200/80 hover:bg-amber-200"
-                        : index % 2 === 0
-                          ? "bg-white hover:bg-slate-50"
-                          : "bg-slate-50/70 hover:bg-slate-100/80"
+                      ? "bg-amber-200/80 hover:bg-amber-200"
+                      : index % 2 === 0
+                        ? "bg-white hover:bg-slate-50"
+                        : "bg-slate-50/70 hover:bg-slate-100/80"
                       } cursor-pointer`}
                   >
                     {row.getVisibleCells().map((cell) => (
@@ -1709,8 +1727,8 @@ function ReservationTabsPanel({
                 setIsAddModalOpen(false);
               }}
               className={`rounded-md px-3 py-1.5 text-xs font-semibold transition ${activeTab === tabLabel
-                  ? "bg-slate-800 text-white"
-                  : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                ? "bg-slate-800 text-white"
+                : "bg-slate-100 text-slate-700 hover:bg-slate-200"
                 }`}
             >
               {tabLabel}
@@ -1772,8 +1790,8 @@ function ReservationTabsPanel({
                     : true
               }
               className={`inline-flex h-8 items-center rounded border px-3 text-xs font-semibold transition ${button.primary
-                  ? "border-[#0f2347] bg-[#0f2347] text-white hover:bg-[#0b1b38]"
-                  : "border-slate-300 bg-slate-100 text-slate-700 hover:bg-slate-200"
+                ? "border-[#0f2347] bg-[#0f2347] text-white hover:bg-[#0b1b38]"
+                : "border-slate-300 bg-slate-100 text-slate-700 hover:bg-slate-200"
                 } disabled:cursor-not-allowed disabled:opacity-60`}
             >
               {button.label}
@@ -2103,6 +2121,21 @@ export default function ReservationsPage() {
     },
   });
 
+  const takeReservationMutation = useMutation({
+    mutationFn: async (reservationId: number) => {
+      const response = await axiosInstance.post(RESERVATIONS_ENDPOINTS.adminReservationTake(reservationId));
+      return response.data;
+    },
+    onSuccess: async () => {
+      setToastMessage("Reservation taken.");
+      setFormError("");
+      await queryClient.invalidateQueries({ queryKey: ["reservations", "admin"] });
+    },
+    onError: (error) => {
+      setFormError(resolveReservationSaveError(error));
+    },
+  });
+
   useEffect(() => {
     if (!toastMessage) {
       return;
@@ -2373,6 +2406,13 @@ export default function ReservationsPage() {
                   }}
                   canFinalize={Boolean(form.id)}
                   isFinalizing={finalizeReservationMutation.isPending}
+                  onTake={() => {
+                    if (form.id) {
+                      void takeReservationMutation.mutateAsync(form.id);
+                    }
+                  }}
+                  canTake={Boolean(form.id)}
+                  isTaking={takeReservationMutation.isPending}
                   ownerLabelById={ownerLabelById}
                   tourPackageLabelById={tourPackageLabelById}
                   currencyLabelById={currencyLabelById}
