@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import type { AxiosError } from "axios";
 import {
   createColumnHelper,
@@ -560,10 +561,10 @@ function toFlightInventoryDetail(payload: unknown, fallbackId: number): FlightIn
       ? normalizeCurrencyCode(currencyRaw)
       : currencyRaw && typeof currencyRaw === "object"
         ? normalizeCurrencyCode(
-            (currencyRaw as Record<string, unknown>).code ??
-              (currencyRaw as Record<string, unknown>).currency_code ??
-              (currencyRaw as Record<string, unknown>).iso_code
-          )
+          (currencyRaw as Record<string, unknown>).code ??
+          (currencyRaw as Record<string, unknown>).currency_code ??
+          (currencyRaw as Record<string, unknown>).iso_code
+        )
         : "";
 
   return {
@@ -986,7 +987,7 @@ async function syncReservationServiceCurrencies(args: {
     }
   }
 
-    if (hotels.length > 0) {
+  if (hotels.length > 0) {
     const hotelRoomIds = hotels
       .map((hotel) => hotel.hotelRoomId)
       .filter((id) => Number.isFinite(id));
@@ -1030,10 +1031,10 @@ async function syncReservationServiceCurrencies(args: {
           ? normalizeCurrencyCode(detailCurrencyRaw)
           : detailCurrencyRaw && typeof detailCurrencyRaw === "object"
             ? normalizeCurrencyCode(
-                (detailCurrencyRaw as Record<string, unknown>).code ??
-                  (detailCurrencyRaw as Record<string, unknown>).currency_code ??
-                  (detailCurrencyRaw as Record<string, unknown>).iso_code
-              )
+              (detailCurrencyRaw as Record<string, unknown>).code ??
+              (detailCurrencyRaw as Record<string, unknown>).currency_code ??
+              (detailCurrencyRaw as Record<string, unknown>).iso_code
+            )
             : "";
 
       const sourceCurrencyId = hotel.sellingCurrencyId
@@ -1050,7 +1051,7 @@ async function syncReservationServiceCurrencies(args: {
         currencyCodeById: args.currencyCodeById,
       });
 
-        await updateHotelBooking("admin", hotel.id, {
+      await updateHotelBooking("admin", hotel.id, {
         reservation: args.reservationId,
         selling_currency: Number(converted.currencyId) || sourceCurrencyId || null,
         price: converted.amount,
@@ -1139,22 +1140,20 @@ function ReservationFormPanel({
                 <button
                   type="button"
                   onClick={() => onChange("ownerType", "AGENCY")}
-                  className={`rounded-md border px-2 py-1 text-[11px] font-semibold leading-tight transition ${
-                    form.ownerType === "AGENCY"
+                  className={`rounded-md border px-2 py-1 text-[11px] font-semibold leading-tight transition ${form.ownerType === "AGENCY"
                       ? "border-[#0f2347] bg-[#0f2347] text-white"
                       : "border-slate-300 bg-white text-slate-700 hover:bg-slate-100"
-                  }`}
+                    }`}
                 >
                   Agency
                 </button>
                 <button
                   type="button"
                   onClick={() => onChange("ownerType", "NORMAL")}
-                  className={`rounded-md border px-2 py-1 text-[11px] font-semibold leading-tight transition ${
-                    form.ownerType === "NORMAL"
+                  className={`rounded-md border px-2 py-1 text-[11px] font-semibold leading-tight transition ${form.ownerType === "NORMAL"
                       ? "border-[#0f2347] bg-[#0f2347] text-white"
                       : "border-slate-300 bg-white text-slate-700 hover:bg-slate-100"
-                  }`}
+                    }`}
                 >
                   Normal Customer
                 </button>
@@ -1167,22 +1166,20 @@ function ReservationFormPanel({
                 <button
                   type="button"
                   onClick={() => onChange("bookingMode", "WITH_TOUR_PACKAGE")}
-                  className={`rounded-md border px-2 py-1 text-[11px] font-semibold leading-tight transition ${
-                    form.bookingMode === "WITH_TOUR_PACKAGE"
+                  className={`rounded-md border px-2 py-1 text-[11px] font-semibold leading-tight transition ${form.bookingMode === "WITH_TOUR_PACKAGE"
                       ? "border-[#0f2347] bg-[#0f2347] text-white"
                       : "border-slate-300 bg-white text-slate-700 hover:bg-slate-100"
-                  }`}
+                    }`}
                 >
                   With Tour Package
                 </button>
                 <button
                   type="button"
                   onClick={() => onChange("bookingMode", "STANDALONE_SERVICES")}
-                  className={`rounded-md border px-2 py-1 text-[11px] font-semibold leading-tight transition ${
-                    form.bookingMode === "STANDALONE_SERVICES"
+                  className={`rounded-md border px-2 py-1 text-[11px] font-semibold leading-tight transition ${form.bookingMode === "STANDALONE_SERVICES"
                       ? "border-[#0f2347] bg-[#0f2347] text-white"
                       : "border-slate-300 bg-white text-slate-700 hover:bg-slate-100"
-                  }`}
+                    }`}
                 >
                   Standalone Services
                 </button>
@@ -1216,17 +1213,17 @@ function ReservationFormPanel({
               ) : null}
               {!relatedLoading && form.ownerType === "AGENCY"
                 ? agencyOptions.map((option) => (
-                    <option key={option.id} value={option.id}>
-                      {option.label}
-                    </option>
-                  ))
+                  <option key={option.id} value={option.id}>
+                    {option.label}
+                  </option>
+                ))
                 : null}
               {!relatedLoading && form.ownerType === "NORMAL"
                 ? customerOptions.map((option) => (
-                    <option key={option.id} value={option.id}>
-                      {option.label}
-                    </option>
-                  ))
+                  <option key={option.id} value={option.id}>
+                    {option.label}
+                  </option>
+                ))
                 : null}
             </select>
           </div>
@@ -1446,11 +1443,10 @@ function ReservationRecordsTable({
         header: "Tour Package",
         cell: (info) => (
           <span
-            className={`inline-flex rounded-md border px-2 py-0.5 text-[11px] font-medium ${
-              info.row.original.tourPackageId
+            className={`inline-flex rounded-md border px-2 py-0.5 text-[11px] font-medium ${info.row.original.tourPackageId
                 ? "border-slate-200 bg-slate-50 text-slate-700"
                 : "border-amber-200 bg-amber-50 text-amber-700"
-            }`}
+              }`}
           >
             {info.row.original.tourPackageId
               ? tourPackageLabelById[info.row.original.tourPackageId] || info.getValue()
@@ -1549,8 +1545,18 @@ function ReservationRecordsTable({
             Add
           </button>
 
-          <h3 className="ml-1 text-xs font-semibold uppercase tracking-wide text-slate-700">Reservations</h3>
+          <Link
+            href="/work-desk"
+            className="inline-flex h-8 items-center gap-1.5 rounded border border-slate-300 bg-white px-3 text-[11px] font-semibold text-slate-700 hover:bg-slate-100"
+          >
+            <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M9 11l3 3L22 4" />
+              <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
+            </svg>
+            Work Desk
+          </Link>
 
+          <h3 className="ml-1 text-xs font-semibold uppercase tracking-wide text-slate-700">Reservations</h3>
           <div className="ml-auto flex items-center gap-2">
             <span className="text-xs text-slate-500">{rows.length} records</span>
             <button
@@ -1601,13 +1607,12 @@ function ReservationRecordsTable({
                   <tr
                     key={row.id}
                     onClick={() => onSelect(row.original)}
-                    className={`${
-                      isSelected
+                    className={`${isSelected
                         ? "bg-amber-200/80 hover:bg-amber-200"
                         : index % 2 === 0
                           ? "bg-white hover:bg-slate-50"
                           : "bg-slate-50/70 hover:bg-slate-100/80"
-                    } cursor-pointer`}
+                      } cursor-pointer`}
                   >
                     {row.getVisibleCells().map((cell) => (
                       <td key={cell.id} className="border-b border-slate-100 px-3 py-2 align-middle">
@@ -1703,11 +1708,10 @@ function ReservationTabsPanel({
                 setActiveTab(tabLabel);
                 setIsAddModalOpen(false);
               }}
-              className={`rounded-md px-3 py-1.5 text-xs font-semibold transition ${
-                activeTab === tabLabel
+              className={`rounded-md px-3 py-1.5 text-xs font-semibold transition ${activeTab === tabLabel
                   ? "bg-slate-800 text-white"
                   : "bg-slate-100 text-slate-700 hover:bg-slate-200"
-              }`}
+                }`}
             >
               {tabLabel}
             </button>
@@ -1767,11 +1771,10 @@ function ReservationTabsPanel({
                     ? !supportsSelectedRowActions || !reservationId
                     : true
               }
-              className={`inline-flex h-8 items-center rounded border px-3 text-xs font-semibold transition ${
-                button.primary
+              className={`inline-flex h-8 items-center rounded border px-3 text-xs font-semibold transition ${button.primary
                   ? "border-[#0f2347] bg-[#0f2347] text-white hover:bg-[#0b1b38]"
                   : "border-slate-300 bg-slate-100 text-slate-700 hover:bg-slate-200"
-              } disabled:cursor-not-allowed disabled:opacity-60`}
+                } disabled:cursor-not-allowed disabled:opacity-60`}
             >
               {button.label}
             </button>
@@ -2044,7 +2047,7 @@ export default function ReservationsPage() {
         }
       }
 
-      if (!( !variables.id && variables.bookingMode === "WITH_TOUR_PACKAGE" && savedRow?.tourPackageId)) {
+      if (!(!variables.id && variables.bookingMode === "WITH_TOUR_PACKAGE" && savedRow?.tourPackageId)) {
         setToastMessage("Reservation saved.");
       }
       setFormError("");
@@ -2077,15 +2080,15 @@ export default function ReservationsPage() {
         buildReservationPayload(
           currentForm,
           tourists.map((tourist) => ({
-          id: tourist.id,
-          first_name: tourist.first_name,
-          last_name: tourist.last_name,
-          sex: tourist.sex,
-          age_type: tourist.age_type,
-          passport_number: tourist.passport_number,
-          nationality: tourist.nationality,
-          birth_date: tourist.birth_date ?? undefined,
-          passport_expiry_date: tourist.passport_expiry_date ?? undefined,
+            id: tourist.id,
+            first_name: tourist.first_name,
+            last_name: tourist.last_name,
+            sex: tourist.sex,
+            age_type: tourist.age_type,
+            passport_number: tourist.passport_number,
+            nationality: tourist.nationality,
+            birth_date: tourist.birth_date ?? undefined,
+            passport_expiry_date: tourist.passport_expiry_date ?? undefined,
           }))
         )
       );
@@ -2273,119 +2276,119 @@ export default function ReservationsPage() {
         <div className="grid h-[calc(100vh-12rem)] min-h-[620px] grid-cols-1 gap-4 lg:grid-cols-12">
           <div className="min-h-0 lg:col-span-5">
             <div className="flex h-full min-h-0 flex-col gap-4 overflow-hidden">
-            <div className="min-h-0 flex-[7] overflow-y-auto pr-1">
-              <ReservationFormPanel
-                form={form}
-                statusOptions={statusOptions}
-                statusesLoading={statusesLoading}
-                currencyOptions={currencyOptions}
-                agencyOptions={agencyOptions}
-                customerOptions={customerOptions}
-                selectedAgencyDetails={selectedAgencyDetails}
-                tourPackageOptions={tourPackageOptions}
-                currenciesLoading={currenciesLoading}
-                relatedLoading={relatedLoading}
-                onChange={updateField}
-                onSave={() => void saveReservationMutation.mutateAsync(form)}
-                isSaving={saveReservationMutation.isPending}
-              />
-            </div>
-            <div className="min-h-0 flex-[4] overflow-y-auto pr-1">
-              <TouristManager
-                key={`tourists-${activeReservationId ?? "none"}`}
-                reservationId={activeReservationId}
-                filterTouristIds={selectedHotelRoomTouristIds}
-                onTouristAdded={async (tourist) => {
-                  if (!activeReservationId || !form.tourPackageId) return;
-                  const parsedPkgId = Number.parseInt(form.tourPackageId, 10);
-                  if (!Number.isFinite(parsedPkgId)) return;
-                  try {
-                    const tourPackage = await getAdminTourPackage(parsedPkgId);
-                    const [existing, flightDetailsAll] = await Promise.all([
-                      listFlightTickets(activeReservationId),
-                      loadFlightDetails(tourPackage.flights),
-                    ]);
-                    const selectedFlights = pickArrivalDepartureFlights(flightDetailsAll);
-                    const existingKeys = new Set(existing.map((t) => `${t.flightId}-${t.touristId}`));
-                    for (const [flightIndex, flight] of selectedFlights.entries()) {
-                      const legCode: "ARR" | "DEP" = selectedFlights.length > 1 && flightIndex === selectedFlights.length - 1 ? "DEP" : "ARR";
-                      const key = `${flight.id}-${tourist.id}`;
-                      if (!existingKeys.has(key)) {
-                        const convertedFlight = await convertToReservationCurrency({
-                          amount: resolveFlightPriceForOwner(flight, form.ownerType),
-                          sourceCurrencyId: flight.currency,
-                          sourceCurrencyCode: flight.currencyCode,
-                          reservationCurrencyId: form.currencyId,
-                          currencyCodeById,
-                        });
+              <div className="min-h-0 flex-[7] overflow-y-auto pr-1">
+                <ReservationFormPanel
+                  form={form}
+                  statusOptions={statusOptions}
+                  statusesLoading={statusesLoading}
+                  currencyOptions={currencyOptions}
+                  agencyOptions={agencyOptions}
+                  customerOptions={customerOptions}
+                  selectedAgencyDetails={selectedAgencyDetails}
+                  tourPackageOptions={tourPackageOptions}
+                  currenciesLoading={currenciesLoading}
+                  relatedLoading={relatedLoading}
+                  onChange={updateField}
+                  onSave={() => void saveReservationMutation.mutateAsync(form)}
+                  isSaving={saveReservationMutation.isPending}
+                />
+              </div>
+              <div className="min-h-0 flex-[4] overflow-y-auto pr-1">
+                <TouristManager
+                  key={`tourists-${activeReservationId ?? "none"}`}
+                  reservationId={activeReservationId}
+                  filterTouristIds={selectedHotelRoomTouristIds}
+                  onTouristAdded={async (tourist) => {
+                    if (!activeReservationId || !form.tourPackageId) return;
+                    const parsedPkgId = Number.parseInt(form.tourPackageId, 10);
+                    if (!Number.isFinite(parsedPkgId)) return;
+                    try {
+                      const tourPackage = await getAdminTourPackage(parsedPkgId);
+                      const [existing, flightDetailsAll] = await Promise.all([
+                        listFlightTickets(activeReservationId),
+                        loadFlightDetails(tourPackage.flights),
+                      ]);
+                      const selectedFlights = pickArrivalDepartureFlights(flightDetailsAll);
+                      const existingKeys = new Set(existing.map((t) => `${t.flightId}-${t.touristId}`));
+                      for (const [flightIndex, flight] of selectedFlights.entries()) {
+                        const legCode: "ARR" | "DEP" = selectedFlights.length > 1 && flightIndex === selectedFlights.length - 1 ? "DEP" : "ARR";
+                        const key = `${flight.id}-${tourist.id}`;
+                        if (!existingKeys.has(key)) {
+                          const convertedFlight = await convertToReservationCurrency({
+                            amount: resolveFlightPriceForOwner(flight, form.ownerType),
+                            sourceCurrencyId: flight.currency,
+                            sourceCurrencyCode: flight.currencyCode,
+                            reservationCurrencyId: form.currencyId,
+                            currencyCodeById,
+                          });
 
-                        await createFlightTicket({
-                          reservation: activeReservationId,
-                          flight: flight.id,
-                          tourist: tourist.id,
-                          departure_date: flight.departureDate || null,
-                          arrival_date: flight.arrivalDate || null,
-                          departing_date: flight.departureDate || null,
-                          arriving_date: flight.arrivalDate || null,
-                          ticket_number: buildAutoTicketNumber({
-                            reservationId: activeReservationId,
-                            touristId: tourist.id,
-                            flightNumber: flight.flightNumber,
-                            legCode,
-                          }),
-                          pnr: buildAutoTicketNumber({
-                            reservationId: activeReservationId,
-                            touristId: tourist.id,
-                            flightNumber: flight.flightNumber,
-                            legCode,
-                          }),
-                          price: convertedFlight.amount,
-                          currency: convertedFlight.currencyId,
-                          paid: false,
-                          is_paid: false,
-                        });
+                          await createFlightTicket({
+                            reservation: activeReservationId,
+                            flight: flight.id,
+                            tourist: tourist.id,
+                            departure_date: flight.departureDate || null,
+                            arrival_date: flight.arrivalDate || null,
+                            departing_date: flight.departureDate || null,
+                            arriving_date: flight.arrivalDate || null,
+                            ticket_number: buildAutoTicketNumber({
+                              reservationId: activeReservationId,
+                              touristId: tourist.id,
+                              flightNumber: flight.flightNumber,
+                              legCode,
+                            }),
+                            pnr: buildAutoTicketNumber({
+                              reservationId: activeReservationId,
+                              touristId: tourist.id,
+                              flightNumber: flight.flightNumber,
+                              legCode,
+                            }),
+                            price: convertedFlight.amount,
+                            currency: convertedFlight.currencyId,
+                            paid: false,
+                            is_paid: false,
+                          });
+                        }
                       }
+                      await queryClient.invalidateQueries({ queryKey: ["reservation-service", "flight-ticket", activeReservationId] });
+                    } catch {
+                      // silently skip — tickets can be added manually
                     }
-                    await queryClient.invalidateQueries({ queryKey: ["reservation-service", "flight-ticket", activeReservationId] });
-                  } catch {
-                    // silently skip — tickets can be added manually
-                  }
-                }}
-              />
+                  }}
+                />
+              </div>
             </div>
-          </div>
           </div>
 
           <div className="min-h-0 lg:col-span-7">
             <div className="flex h-full min-h-0 flex-col gap-4 overflow-hidden">
-            <div className="min-h-0 flex-[6]">
-              <ReservationRecordsTable
-                rows={reservationsQuery.data ?? []}
-                loading={reservationsQuery.isLoading}
-                selectedReservationId={selectedReservationId}
-                onSelect={handleSelectReservation}
-                onAdd={handleAddReservation}
-                onFinalize={() => {
-                  void finalizeReservationMutation.mutateAsync(form);
-                }}
-                canFinalize={Boolean(form.id)}
-                isFinalizing={finalizeReservationMutation.isPending}
-                ownerLabelById={ownerLabelById}
-                tourPackageLabelById={tourPackageLabelById}
-                currencyLabelById={currencyLabelById}
-              />
-            </div>
-            <div className="min-h-0 flex-[4]">
-              <ReservationTabsPanel
-                reservationId={activeReservationId}
-                ownerType={form.ownerType}
-                tourPackageId={form.bookingMode === "WITH_TOUR_PACKAGE" ? form.tourPackageId : undefined}
-                currencyOptions={currencyOptions}
-                reservationCurrencyId={form.currencyId}
-                currencyCodeById={currencyCodeById}
-                onHotelBookingSelected={setSelectedHotelRoomTouristIds}
-              />
-            </div>
+              <div className="min-h-0 flex-[6]">
+                <ReservationRecordsTable
+                  rows={reservationsQuery.data ?? []}
+                  loading={reservationsQuery.isLoading}
+                  selectedReservationId={selectedReservationId}
+                  onSelect={handleSelectReservation}
+                  onAdd={handleAddReservation}
+                  onFinalize={() => {
+                    void finalizeReservationMutation.mutateAsync(form);
+                  }}
+                  canFinalize={Boolean(form.id)}
+                  isFinalizing={finalizeReservationMutation.isPending}
+                  ownerLabelById={ownerLabelById}
+                  tourPackageLabelById={tourPackageLabelById}
+                  currencyLabelById={currencyLabelById}
+                />
+              </div>
+              <div className="min-h-0 flex-[4]">
+                <ReservationTabsPanel
+                  reservationId={activeReservationId}
+                  ownerType={form.ownerType}
+                  tourPackageId={form.bookingMode === "WITH_TOUR_PACKAGE" ? form.tourPackageId : undefined}
+                  currencyOptions={currencyOptions}
+                  reservationCurrencyId={form.currencyId}
+                  currencyCodeById={currencyCodeById}
+                  onHotelBookingSelected={setSelectedHotelRoomTouristIds}
+                />
+              </div>
             </div>
           </div>
         </div>

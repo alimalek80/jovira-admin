@@ -1,6 +1,7 @@
 import { cookies } from "next/headers";
 import Link from "next/link";
 import { RESERVATIONS_ENDPOINTS } from "@/lib/api-endpoints";
+import WorkDeskFilters from "@/components/work-desk/WorkDeskFilters";
 
 type WorkDeskHotelBooking = {
   id: number;
@@ -41,6 +42,7 @@ type WorkDeskFetchResult = {
 type WorkDeskPageProps = {
   searchParams?: Promise<{
     only_me?: string;
+    rf_number?: string;
   }>;
 };
 
@@ -154,6 +156,10 @@ export default async function WorkDeskPage({ searchParams }: WorkDeskPageProps) 
     queryParams.set("only_me", resolvedSearchParams.only_me);
   }
 
+  if (resolvedSearchParams?.rf_number) {
+    queryParams.set("rf_number", resolvedSearchParams.rf_number);
+  }
+
   const workDeskResult = await fetchWorkDeskReservations(
     accessToken,
     queryParams.toString()
@@ -177,19 +183,23 @@ export default async function WorkDeskPage({ searchParams }: WorkDeskPageProps) 
             </p>
           </div>
 
-          <div className="flex flex-wrap gap-2">
-            <div
-              className={`rounded-full px-3 py-1 text-xs font-semibold ${
-                workDeskResult.ok
-                  ? "bg-emerald-50 text-emerald-700"
-                  : "bg-rose-50 text-rose-700"
-              }`}
-            >
-              {workDeskResult.ok ? "Connected" : "Not connected"}
-            </div>
+          <div className="flex flex-col items-end gap-3">
+            <WorkDeskFilters />
 
-            <div className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
-              {reservations.length} tasks
+            <div className="flex flex-wrap gap-2">
+              <div
+                className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                  workDeskResult.ok
+                    ? "bg-emerald-50 text-emerald-700"
+                    : "bg-rose-50 text-rose-700"
+                }`}
+              >
+                {workDeskResult.ok ? "Connected" : "Not connected"}
+              </div>
+
+              <div className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
+                {reservations.length} tasks
+              </div>
             </div>
           </div>
         </div>

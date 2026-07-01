@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import {
   LayoutDashboard,
   CalendarCheck,
+  ListChecks,
   Building2,
   BedDouble,
   DoorOpen,
@@ -43,6 +44,11 @@ const navigationGroups: NavigationGroup[] = [
         href: "/reservations",
         label: "Reservations",
         icon: CalendarCheck,
+      },
+      {
+        href: "/work-desk",
+        label: "Work Desk",
+        icon: ListChecks,
       },
       {
         href: "/agencies",
