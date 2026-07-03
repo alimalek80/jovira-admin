@@ -58,6 +58,7 @@ export const RESERVATIONS_ENDPOINTS = {
   adminReservations: `${API_V1}/reservations/admin/reservations/`,
   adminWorkDesk: `${API_V1}/reservations/admin/reservations/work-desk/`,
   adminReservationTake: (id: number) => `${API_V1}/reservations/admin/reservations/${id}/take/`,
+  adminReservationConfirm: (id: number) => `${API_V1}/reservations/admin/reservations/${id}/confirm/`,
   adminTourists: `${API_V1}/reservations/admin/tourists/`,
   adminHotelBookings: `${API_V1}/reservations/admin/hotel-bookings/`,
   adminFlightTickets: `${API_V1}/reservations/admin/flight-tickets/`,
