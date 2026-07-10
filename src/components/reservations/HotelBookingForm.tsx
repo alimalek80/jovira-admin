@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { AxiosError } from "axios";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
@@ -116,9 +116,9 @@ function emptyValues(): FormValues {
   };
 }
 
-function bookingToValues(booking: HotelBooking): FormValues {
+function bookingToValues(booking: HotelBooking, hotelId: string): FormValues {
   return {
-    hotel: "",
+    hotel: hotelId,
     hotel_room: String(booking.hotelRoomId ?? ""),
     check_in_date: booking.checkInDate?.slice(0, 10) ?? "",
     check_out_date: booking.checkOutDate?.slice(0, 10) ?? "",
@@ -146,6 +146,7 @@ export default function HotelBookingForm({
   reservationId,
   ownerType,
   booking,
+  initialHotelId,
   onSuccess,
   onCancel,
 }: {
@@ -155,16 +156,22 @@ export default function HotelBookingForm({
   reservationCurrencyId?: string;
   currencyCodeById?: Record<string, string>;
   booking?: HotelBooking;
+  initialHotelId?: string;
   onSuccess?: () => void;
   onCancel?: () => void;
 }) {
   const queryClient = useQueryClient();
 
+  // On edit: use initialHotelId (passed from parent) to pre-populate hotel synchronously.
+  // On create: start with empty values.
   const [values, setValues] = useState<FormValues>(() =>
-    booking ? bookingToValues(booking) : emptyValues()
+    booking ? bookingToValues(booking, initialHotelId ?? "") : emptyValues()
   );
   const [fieldErrors, setFieldErrors] = useState<FieldErrorMap>({});
   const [formError, setFormError] = useState("");
+
+  // Track whether we are in edit mode so we do not overwrite existing financials.
+  const isEditMode = Boolean(booking?.id);
 
   // ---- Data queries ----------------------------------------------------------
 
@@ -194,25 +201,27 @@ export default function HotelBookingForm({
   const currencyOptions = currenciesQuery.data ?? [];
   const availableTourists = touristsQuery.data ?? [];
 
-  // When editing, resolve the parent hotel from the booked room
-  const [resolvedHotelId, setResolvedHotelId] = useState<string>("");
+  // If initialHotelId was not provided but we are editing, try to resolve the
+  // hotel from the room detail as a fallback (fires only once, only when needed).
+  const resolvedRef = useRef(false);
   useEffect(() => {
-    if (!booking?.hotelRoomId || resolvedHotelId) return;
-    if (!hotelOptions.length) return;
+    if (!booking?.hotelRoomId) return;
+    if (values.hotel) return; // already set — nothing to do
+    if (resolvedRef.current) return;
+    resolvedRef.current = true;
+
     void (async () => {
       try {
         const rooms = await listHotelRooms();
         const room = rooms.find((r) => r.id === booking.hotelRoomId);
         if (room) {
-          const hotelId = String(room.hotel);
-          setResolvedHotelId(hotelId);
-          setValues((prev) => ({ ...prev, hotel: hotelId }));
+          setValues((prev) => ({ ...prev, hotel: String(room.hotel) }));
         }
       } catch {
-        // user can select manually
+        // User can select hotel manually.
       }
     })();
-  }, [booking, hotelOptions, resolvedHotelId]);
+  }, [booking?.hotelRoomId, values.hotel]);
 
   const selectedHotelId = values.hotel;
 
@@ -255,9 +264,15 @@ export default function HotelBookingForm({
     ? availability.available_count - (Number.isFinite(qty) ? qty : 0)
     : null;
 
-  // Auto-populate financials when room changes
+  // Auto-populate financials when room changes — only on new bookings.
+  // On edit, the user's saved financials must not be overwritten.
+  const prevRoomIdRef = useRef<string | null>(null);
   useEffect(() => {
+    if (isEditMode) return;
     if (!selectedRoom) return;
+    if (prevRoomIdRef.current === String(selectedRoom.id)) return;
+    prevRoomIdRef.current = String(selectedRoom.id);
+
     const roomCurrencyId = String(selectedRoom.currency);
     const isAgency = ownerType === "AGENCY";
     const autoPrice = isAgency
@@ -272,7 +287,7 @@ export default function HotelBookingForm({
       cost_currency: roomCurrencyId,
       cost: selectedRoom.cost_price ?? "",
     }));
-  }, [selectedRoom, ownerType]);
+  }, [selectedRoom, ownerType, isEditMode]);
 
   // ---- Helpers ---------------------------------------------------------------
 
@@ -328,7 +343,6 @@ export default function HotelBookingForm({
     },
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["reservation-service", "hotel", reservationId] });
-      // Refresh availability so subsequent adds show the updated count.
       await queryClient.invalidateQueries({ queryKey: ["room-availability"] });
       onSuccess?.();
     },
@@ -446,7 +460,7 @@ export default function HotelBookingForm({
         ) : selectedRoom ? (
           <p className="mt-1 text-[11px] text-slate-500">
             Total capacity: <span className="font-semibold text-slate-700">{selectedRoom.availability_count}</span> rooms
-            {" \u00b7 "}Select dates to see live availability.
+            {" · "}Select dates to see live availability.
           </p>
         ) : null}
         {fieldErrors.hotel_room ? <p className="mt-1 text-[11px] text-red-600">{fieldErrors.hotel_room}</p> : null}

@@ -148,6 +148,7 @@ export const HotelBookingManager = forwardRef<
   const [isViewOpen, setIsViewOpen] = useState(false);
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [toastMessage, setToastMessage] = useState("");
+  const [resolvedHotelIdForEdit, setResolvedHotelIdForEdit] = useState<string>("");
   const currencyLabelById = useMemo(
     () =>
       currencyOptions.reduce<Record<string, string>>((acc, option) => {
@@ -196,7 +197,19 @@ export const HotelBookingManager = forwardRef<
         window.alert("Select a hotel row first.");
         return;
       }
-      setIsEditOpen(true);
+      // Reset so the form doesn't carry a stale hotel ID from a previous edit.
+      setResolvedHotelIdForEdit("");
+      void (async () => {
+        try {
+          const { listHotelRooms } = await import("@/lib/api/hotel-rooms");
+          const rooms = await listHotelRooms();
+          const room = rooms.find((r) => r.id === selectedBooking.hotelRoomId);
+          if (room) setResolvedHotelIdForEdit(String(room.hotel));
+        } catch {
+          // Form has its own fallback; open anyway.
+        }
+        setIsEditOpen(true);
+      })();
     },
     openView: () => {
       if (!selectedBooking) {
@@ -280,7 +293,21 @@ export const HotelBookingManager = forwardRef<
                   setSelectedId(booking.id);
                   onSelectBooking?.(booking.tourists?.length ? booking.tourists : null);
                 }}
-                onDoubleClick={() => { setSelectedId(booking.id); if (!isReadOnly) setIsEditOpen(true); else setIsViewOpen(true); onSelectBooking?.(booking.tourists?.length ? booking.tourists : null); }}
+                onDoubleClick={() => {
+                  setSelectedId(booking.id);
+                  onSelectBooking?.(booking.tourists?.length ? booking.tourists : null);
+                  if (isReadOnly) { setIsViewOpen(true); return; }
+                  setResolvedHotelIdForEdit("");
+                  void (async () => {
+                    try {
+                      const { listHotelRooms } = await import("@/lib/api/hotel-rooms");
+                      const rooms = await listHotelRooms();
+                      const room = rooms.find((r) => r.id === booking.hotelRoomId);
+                      if (room) setResolvedHotelIdForEdit(String(room.hotel));
+                    } catch { /* form has fallback */ }
+                    setIsEditOpen(true);
+                  })();
+                }}
                 className={`cursor-pointer ${
                   selectedBooking?.id === booking.id
                     ? "bg-amber-200/80 hover:bg-amber-200"
@@ -352,6 +379,7 @@ export const HotelBookingManager = forwardRef<
             key={`edit-hotel-${selectedBooking.id}`}
             reservationId={reservationId as number}
             booking={selectedBooking}
+            initialHotelId={resolvedHotelIdForEdit}
             ownerType={ownerType}
             currencyOptions={currencyOptions}
             reservationCurrencyId={reservationCurrencyId}
