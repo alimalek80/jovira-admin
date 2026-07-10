@@ -1087,15 +1087,31 @@ function FlightTicketForm({
 
 // ─── FlightTicketViewPanel ────────────────────────────────────────────────────
 
-function FlightTicketViewPanel({ ticket, currencyLabel }: { ticket: FlightTicket; currencyLabel: string }) {
+function FlightTicketViewPanel({
+  ticket,
+  flightLabel,
+  touristLabel,
+  departureLabel,
+  arrivalLabel,
+  priceLabel,
+  currencyLabel,
+}: {
+  ticket: FlightTicket;
+  flightLabel: string;
+  touristLabel: string;
+  departureLabel: string;
+  arrivalLabel: string;
+  priceLabel: string;
+  currencyLabel: string;
+}) {
   return (
     <div className="grid gap-2.5 sm:grid-cols-2">
-      <ViewField label="Flight" value={ticket.flightLabel} />
-      <ViewField label="Passenger" value={ticket.touristName} />
+      <ViewField label="Flight" value={flightLabel} />
+      <ViewField label="Passenger" value={touristLabel} />
       <ViewField label="Ticket / PNR" value={ticket.ticketNumber} />
-      <ViewField label="Departure Date" value={toDateLabel(ticket.departureDate)} />
-      <ViewField label="Arrival Date" value={toDateLabel(ticket.arrivalDate)} />
-      <ViewField label="Price" value={ticket.price ? `${ticket.price} ${currencyLabel}`.trim() : "-"} />
+      <ViewField label="Departure Date" value={departureLabel} />
+      <ViewField label="Arrival Date" value={arrivalLabel} />
+      <ViewField label="Price" value={priceLabel} />
       <ViewField label="Currency" value={currencyLabel} />
       <ViewField label="Paid" value={ticket.paid ? "Yes" : "No"} />
     </div>
@@ -1403,7 +1419,15 @@ export const FlightTicketManager = forwardRef<
 
       {isViewOpen && selectedTicket ? (
         <ModalShell title="View Flight Ticket" onClose={() => setIsViewOpen(false)}>
-          <FlightTicketViewPanel ticket={selectedTicket} currencyLabel={currencyLabelById[selectedTicket.currencyId] ?? ""} />
+          <FlightTicketViewPanel
+            ticket={selectedTicket}
+            flightLabel={resolveFlightLabel(selectedTicket)}
+            touristLabel={resolveTouristLabel(selectedTicket)}
+            departureLabel={resolveTicketDeparture(selectedTicket)}
+            arrivalLabel={resolveTicketArrival(selectedTicket)}
+            currencyLabel={resolveTicketCurrencyLabel(selectedTicket)}
+            priceLabel={`${resolveTicketPrice(selectedTicket)} ${resolveTicketCurrencyLabel(selectedTicket)}`.trim() || "-"}
+          />
         </ModalShell>
       ) : null}
 
