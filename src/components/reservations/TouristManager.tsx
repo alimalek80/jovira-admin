@@ -10,6 +10,7 @@ type TouristManagerProps = {
   reservationId: number | null;
   scope?: "admin" | "client";
   onTouristAdded?: (tourist: Tourist) => void;
+  isReadOnly?: boolean;
   /** When set, only tourists whose IDs are in this array are shown (room selection filter). */
   filterTouristIds?: number[] | null;
 };
@@ -29,7 +30,7 @@ function toDateInputValue(value: string | null | undefined): string {
   return normalized.slice(0, 10);
 }
 
-export default function TouristManager({ reservationId, scope = "admin", onTouristAdded, filterTouristIds }: TouristManagerProps) {
+export default function TouristManager({ reservationId, scope = "admin", onTouristAdded, isReadOnly = false, filterTouristIds }: TouristManagerProps) {
   const queryClient = useQueryClient();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingTourist, setEditingTourist] = useState<Tourist | null>(null);
@@ -87,8 +88,8 @@ export default function TouristManager({ reservationId, scope = "admin", onTouri
   const activeSelectedTouristId = selectedTourist?.id ?? null;
 
   return (
-    <section className="flex h-full min-h-0 flex-col rounded-xl border border-slate-300 bg-white">
-      <div className="border-b border-slate-200 px-4 py-2.5">
+    <section className="flex h-full min-h-0 flex-col overflow-hidden rounded-none border-0 bg-white">
+      <div className="shrink-0 border-b border-slate-200 px-4 py-2.5">
         <div>
           <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-700">Tourists</h3>
           <p className="mt-0.5 text-[11px] text-slate-500">{touristCountLabel}</p>
@@ -125,7 +126,7 @@ export default function TouristManager({ reservationId, scope = "admin", onTouri
 
           <button
             type="button"
-            disabled={typeof reservationId !== "number" || reservationId <= 0}
+            disabled={isReadOnly || typeof reservationId !== "number" || reservationId <= 0}
             onClick={() => {
               setEditingTourist(null);
               setIsModalOpen(true);
@@ -141,7 +142,7 @@ export default function TouristManager({ reservationId, scope = "admin", onTouri
 
           <button
             type="button"
-            disabled={!selectedTourist}
+            disabled={isReadOnly || !selectedTourist}
             onClick={() => {
               if (!selectedTourist) {
                 return;
@@ -161,7 +162,7 @@ export default function TouristManager({ reservationId, scope = "admin", onTouri
 
           <button
             type="button"
-            disabled={!selectedTourist || deleteMutation.isPending}
+            disabled={isReadOnly || !selectedTourist || deleteMutation.isPending}
             onClick={() => {
               if (!selectedTourist) {
                 return;
@@ -197,6 +198,12 @@ export default function TouristManager({ reservationId, scope = "admin", onTouri
         </div>
       ) : null}
 
+      {isReadOnly ? (
+        <div className="mx-4 mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] font-medium text-amber-800">
+          This reservation is locked. Tourists cannot be added, edited, or deleted.
+        </div>
+      ) : null}
+
       {isFiltered ? (
         <div className="mx-4 mt-3 flex items-center gap-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-2">
           <svg viewBox="0 0 24 24" className="h-3.5 w-3.5 shrink-0 text-blue-600" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -217,7 +224,7 @@ export default function TouristManager({ reservationId, scope = "admin", onTouri
         </div>
       ) : null}
 
-      <div className="min-h-0 flex-1 overflow-auto px-4 py-3">
+      <div className="min-h-0 flex-1 overflow-auto px-4 py-3 rustar-scroll">
         {typeof reservationId !== "number" || reservationId <= 0 ? (
           <p className="text-xs text-slate-500">Save or select a reservation to manage tourists.</p>
         ) : touristsQuery.isLoading ? (
@@ -227,7 +234,8 @@ export default function TouristManager({ reservationId, scope = "admin", onTouri
         ) : displayedTourists.length === 0 ? (
           <p className="text-xs text-slate-500">No tourists are assigned to this room yet.</p>
         ) : (
-          <table className="min-w-full rounded-md border border-slate-200 text-left text-[11px]">
+          <div className="min-h-0 overflow-auto rounded-md border border-slate-200 rustar-scroll">
+            <table className="min-w-[620px] text-left text-[11px]">
             <thead className="sticky top-0 bg-slate-100 text-slate-600">
               <tr>
                 <th className="border-b border-slate-200 px-2 py-1.5 font-semibold">Name</th>
@@ -268,11 +276,12 @@ export default function TouristManager({ reservationId, scope = "admin", onTouri
                 </tr>
               ))}
             </tbody>
-          </table>
+            </table>
+          </div>
         )}
       </div>
 
-      {isModalOpen ? (
+      {isModalOpen && !isReadOnly ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4">
           <div className="w-full max-w-2xl rounded-xl border border-slate-200 bg-white shadow-xl">
             <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
@@ -320,3 +329,4 @@ export default function TouristManager({ reservationId, scope = "admin", onTouri
     </section>
   );
 }
+

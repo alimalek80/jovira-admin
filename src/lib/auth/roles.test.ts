@@ -3,10 +3,10 @@ import { USER_ROLES } from "@/lib/auth/types";
 import { canAccessAdminApp } from "@/lib/auth/roles";
 
 describe("canAccessAdminApp", () => {
-  it("allows STAFF role", () => {
+  it("allows organizational staff roles", () => {
     expect(
       canAccessAdminApp({
-        role: USER_ROLES.STAFF,
+        role: USER_ROLES.SALES,
         is_staff: false,
         is_superuser: false,
       })

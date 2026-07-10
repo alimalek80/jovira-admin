@@ -40,11 +40,14 @@ function fieldError(errors: FieldErrorMap, key: keyof TransferServiceFormValues)
   return errors[key] ?? "";
 }
 
+type TransferServiceMode = "ALL" | "ARRIVAL" | "DEPARTURE";
+
 export default function TransferServiceForm({
   reservationId,
   tourPackageId,
   currencyOptions,
   service,
+  mode = "ALL",
   onSuccess,
   onCancel,
 }: {
@@ -52,6 +55,7 @@ export default function TransferServiceForm({
   tourPackageId?: string;
   currencyOptions: Array<{ id: string; label: string }>;
   service?: TransferService;
+  mode?: TransferServiceMode;
   onSuccess?: () => void;
   onCancel?: () => void;
 }) {
@@ -61,8 +65,8 @@ export default function TransferServiceForm({
     transfer_catalog: service?.transferCatalogId ?? "",
     service_name: service?.serviceName ?? "",
     service_date: service?.serviceDate?.slice(0, 10) ?? "",
-    on_arrival: service?.onArrival ?? true,
-    on_departure: service?.onDeparture ?? false,
+    on_arrival: service?.onArrival ?? mode === "ARRIVAL",
+    on_departure: service?.onDeparture ?? mode === "DEPARTURE",
     from_location_type: service?.fromLocationType || "AIRPORT",
     from_location_name: service?.fromLocationName ?? "",
     to_location_type: service?.toLocationType || "HOTEL",
@@ -116,7 +120,7 @@ export default function TransferServiceForm({
 
   const inputClassName = useMemo(
     () =>
-      "w-full rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs text-slate-800 outline-none transition focus:border-slate-500 focus:ring-2 focus:ring-slate-200",
+      "w-full rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs text-slate-800 outline-none transition focus:border-slate-500 focus:ring-2 focus:ring-slate-200",
     []
   );
 
@@ -201,7 +205,7 @@ export default function TransferServiceForm({
   };
 
   return (
-    <form onSubmit={handleSubmit} className="grid gap-3 sm:grid-cols-2">
+    <form onSubmit={handleSubmit} className="grid gap-2.5 sm:grid-cols-2">
       {/* Catalog Transfer select — optional pre-fill */}
       <div className="sm:col-span-2">
         <label htmlFor="transfer_catalog" className="mb-1 block text-[11px] font-medium text-slate-600">
@@ -228,9 +232,7 @@ export default function TransferServiceForm({
             </span>
           ) : null}
         </div>
-        <p className="mt-1 text-[11px] text-slate-500 italic">
-          Selecting a catalog route pre-fills the fields below. You can still override any value.
-        </p>
+        <p className="mt-1 text-[11px] text-slate-500 italic">Selecting a catalog route pre-fills the fields below.</p>
       </div>
 
       <div className="sm:col-span-2">
@@ -256,13 +258,23 @@ export default function TransferServiceForm({
         {fieldError(fieldErrors, "currency") ? <p className="mt-1 text-[11px] text-red-600">{fieldErrors.currency}</p> : null}
       </div>
 
-      <label className="flex items-center gap-2 rounded-md border border-slate-200 px-3 py-2 text-xs font-medium text-slate-700">
-        <input type="checkbox" checked={values.on_arrival} onChange={(event) => update("on_arrival", event.target.checked)} />
+      <label className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-medium text-slate-700">
+        <input
+          type="checkbox"
+          checked={values.on_arrival}
+          disabled={mode === "ARRIVAL" || mode === "DEPARTURE"}
+          onChange={(event) => update("on_arrival", event.target.checked)}
+        />
         On Arrival
       </label>
 
       <label className="flex items-center gap-2 rounded-md border border-slate-200 px-3 py-2 text-xs font-medium text-slate-700">
-        <input type="checkbox" checked={values.on_departure} onChange={(event) => update("on_departure", event.target.checked)} />
+        <input
+          type="checkbox"
+          checked={values.on_departure}
+          disabled={mode === "ARRIVAL" || mode === "DEPARTURE"}
+          onChange={(event) => update("on_departure", event.target.checked)}
+        />
         On Departure
       </label>
 
@@ -300,7 +312,7 @@ export default function TransferServiceForm({
 
       <div className="sm:col-span-2">
         <label className="mb-1 block text-[11px] font-medium text-slate-600">Passengers</label>
-        <div className="max-h-32 space-y-1 overflow-auto rounded-md border border-slate-200 p-2">
+        <div className="max-h-28 space-y-1 overflow-auto rounded-lg border border-slate-200 p-2">
           {(touristsQuery.data ?? []).length === 0 ? (
             <p className="text-[11px] text-slate-500">No tourists available for this reservation.</p>
           ) : (
@@ -316,12 +328,12 @@ export default function TransferServiceForm({
 
       <div className="sm:col-span-2">
         <label htmlFor="external_note" className="mb-1 block text-[11px] font-medium text-slate-600">External Note</label>
-        <textarea id="external_note" value={values.external_note} onChange={(event) => update("external_note", event.target.value)} className={`${inputClassName} min-h-20`} />
+        <textarea id="external_note" value={values.external_note} onChange={(event) => update("external_note", event.target.value)} className={`${inputClassName} min-h-16`} />
       </div>
 
       <div className="sm:col-span-2">
         <label htmlFor="driver_note" className="mb-1 block text-[11px] font-medium text-slate-600">Driver Note</label>
-        <textarea id="driver_note" value={values.driver_note} onChange={(event) => update("driver_note", event.target.value)} className={`${inputClassName} min-h-20`} />
+        <textarea id="driver_note" value={values.driver_note} onChange={(event) => update("driver_note", event.target.value)} className={`${inputClassName} min-h-16`} />
       </div>
 
       {formError ? <p className="sm:col-span-2 text-[11px] font-medium text-red-600">{formError}</p> : null}

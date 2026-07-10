@@ -13,7 +13,6 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   HotelBookingManager,
   TransferServiceManager,
-  ExcursionServiceManager,
   FlightTicketManager,
   type ReservationServiceManagerHandle,
 } from "../../../components/reservations/ReservationServiceManagers";
@@ -41,6 +40,7 @@ import {
 } from "@/lib/api/reservation-services";
 import { listHotelRooms } from "@/lib/api/hotel-rooms";
 import ActivityTimeline from "@/components/reservations/ActivityTimeline";
+import { useCurrentUser } from "@/lib/auth/useCurrentUser";
 
 
 type ReservationRecord = {
@@ -117,6 +117,7 @@ const TAB_LABELS = [
   "Flight Tickets",
   "Other",
   "Excursion",
+  "All Services",
   "Activity",
 ] as const;
 
@@ -1077,6 +1078,7 @@ function ReservationFormPanel({
   onChange,
   onSave,
   isSaving,
+  isReadOnly,
 }: {
   form: ReservationFormState;
   statusOptions: Array<{ value: string; label: string }>;
@@ -1091,6 +1093,7 @@ function ReservationFormPanel({
   onChange: <K extends keyof ReservationFormState>(key: K, value: ReservationFormState[K]) => void;
   onSave: () => void;
   isSaving: boolean;
+  isReadOnly: boolean;
 }) {
   return (
     <section className="rounded-xl border border-slate-300 bg-white">
@@ -1102,9 +1105,16 @@ function ReservationFormPanel({
         className="grid gap-4 p-4"
         onSubmit={(event) => {
           event.preventDefault();
+          if (isReadOnly) return;
           onSave();
         }}
       >
+        {isReadOnly ? (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800">
+            This reservation is confirmed and locked. Only admins can edit confirmed reservations.
+          </div>
+        ) : null}
+
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label htmlFor="reservationNo" className="mb-1 block text-xs font-medium text-slate-600">
@@ -1139,8 +1149,9 @@ function ReservationFormPanel({
               <div className="grid grid-cols-2 gap-2">
                 <button
                   type="button"
+                  disabled={isReadOnly}
                   onClick={() => onChange("ownerType", "AGENCY")}
-                  className={`rounded-md border px-2 py-1 text-[11px] font-semibold leading-tight transition ${form.ownerType === "AGENCY"
+                  className={`rounded-md border px-2 py-1 text-[11px] font-semibold leading-tight transition disabled:cursor-not-allowed disabled:opacity-60 ${form.ownerType === "AGENCY"
                     ? "border-[#0f2347] bg-[#0f2347] text-white"
                     : "border-slate-300 bg-white text-slate-700 hover:bg-slate-100"
                     }`}
@@ -1149,8 +1160,9 @@ function ReservationFormPanel({
                 </button>
                 <button
                   type="button"
+                  disabled={isReadOnly}
                   onClick={() => onChange("ownerType", "NORMAL")}
-                  className={`rounded-md border px-2 py-1 text-[11px] font-semibold leading-tight transition ${form.ownerType === "NORMAL"
+                  className={`rounded-md border px-2 py-1 text-[11px] font-semibold leading-tight transition disabled:cursor-not-allowed disabled:opacity-60 ${form.ownerType === "NORMAL"
                     ? "border-[#0f2347] bg-[#0f2347] text-white"
                     : "border-slate-300 bg-white text-slate-700 hover:bg-slate-100"
                     }`}
@@ -1165,8 +1177,9 @@ function ReservationFormPanel({
               <div className="grid grid-cols-2 gap-2">
                 <button
                   type="button"
+                  disabled={isReadOnly}
                   onClick={() => onChange("bookingMode", "WITH_TOUR_PACKAGE")}
-                  className={`rounded-md border px-2 py-1 text-[11px] font-semibold leading-tight transition ${form.bookingMode === "WITH_TOUR_PACKAGE"
+                  className={`rounded-md border px-2 py-1 text-[11px] font-semibold leading-tight transition disabled:cursor-not-allowed disabled:opacity-60 ${form.bookingMode === "WITH_TOUR_PACKAGE"
                     ? "border-[#0f2347] bg-[#0f2347] text-white"
                     : "border-slate-300 bg-white text-slate-700 hover:bg-slate-100"
                     }`}
@@ -1175,8 +1188,9 @@ function ReservationFormPanel({
                 </button>
                 <button
                   type="button"
+                  disabled={isReadOnly}
                   onClick={() => onChange("bookingMode", "STANDALONE_SERVICES")}
-                  className={`rounded-md border px-2 py-1 text-[11px] font-semibold leading-tight transition ${form.bookingMode === "STANDALONE_SERVICES"
+                  className={`rounded-md border px-2 py-1 text-[11px] font-semibold leading-tight transition disabled:cursor-not-allowed disabled:opacity-60 ${form.bookingMode === "STANDALONE_SERVICES"
                     ? "border-[#0f2347] bg-[#0f2347] text-white"
                     : "border-slate-300 bg-white text-slate-700 hover:bg-slate-100"
                     }`}
@@ -1201,8 +1215,8 @@ function ReservationFormPanel({
                   ? onChange("agencyId", event.target.value)
                   : onChange("customerId", event.target.value)
               }
-              disabled={relatedLoading}
-              className="w-full rounded-md border border-slate-300 bg-white px-2.5 py-2 text-xs text-slate-800 outline-none transition focus:border-slate-500 focus:ring-2 focus:ring-slate-200"
+              disabled={isReadOnly || relatedLoading}
+              className="w-full rounded-md border border-slate-300 bg-white px-2.5 py-2 text-xs text-slate-800 outline-none transition focus:border-slate-500 focus:ring-2 focus:ring-slate-200 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {relatedLoading ? <option value="">Loading owners...</option> : null}
               {!relatedLoading && form.ownerType === "AGENCY" && agencyOptions.length === 0 ? (
@@ -1238,8 +1252,8 @@ function ReservationFormPanel({
                   id="tourPackageId"
                   value={form.tourPackageId}
                   onChange={(event) => onChange("tourPackageId", event.target.value)}
-                  disabled={relatedLoading}
-                  className="w-full rounded-md border border-slate-300 bg-white px-2.5 py-2 text-xs text-slate-800 outline-none transition focus:border-slate-500 focus:ring-2 focus:ring-slate-200"
+                  disabled={isReadOnly || relatedLoading}
+                  className="w-full rounded-md border border-slate-300 bg-white px-2.5 py-2 text-xs text-slate-800 outline-none transition focus:border-slate-500 focus:ring-2 focus:ring-slate-200 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {relatedLoading ? (
                     <option value="">Loading tour packages...</option>
@@ -1313,8 +1327,8 @@ function ReservationFormPanel({
               id="status"
               value={form.status}
               onChange={(event) => onChange("status", event.target.value)}
-              disabled={statusesLoading}
-              className="w-full rounded-md border border-slate-300 bg-white px-2.5 py-2 text-xs text-slate-800 outline-none transition focus:border-slate-500 focus:ring-2 focus:ring-slate-200 disabled:cursor-wait disabled:opacity-60"
+              disabled={isReadOnly || statusesLoading}
+              className="w-full rounded-md border border-slate-300 bg-white px-2.5 py-2 text-xs text-slate-800 outline-none transition focus:border-slate-500 focus:ring-2 focus:ring-slate-200 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {statusesLoading ? (
                 <option value="">Loading statuses...</option>
@@ -1338,8 +1352,8 @@ function ReservationFormPanel({
               id="currency"
               value={form.currencyId}
               onChange={(event) => onChange("currencyId", event.target.value)}
-              disabled={currenciesLoading}
-              className="w-full rounded-md border border-slate-300 bg-white px-2.5 py-2 text-xs text-slate-800 outline-none transition focus:border-slate-500 focus:ring-2 focus:ring-slate-200 disabled:cursor-wait disabled:opacity-60"
+              disabled={isReadOnly || currenciesLoading}
+              className="w-full rounded-md border border-slate-300 bg-white px-2.5 py-2 text-xs text-slate-800 outline-none transition focus:border-slate-500 focus:ring-2 focus:ring-slate-200 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {currenciesLoading ? (
                 <option value="">Loading currencies...</option>
@@ -1359,10 +1373,10 @@ function ReservationFormPanel({
         <div className="pt-1">
           <button
             type="submit"
-            disabled={isSaving}
+            disabled={isSaving || isReadOnly}
             className="inline-flex items-center justify-center rounded-md border border-slate-700 bg-slate-800 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-70"
           >
-            {isSaving ? "Saving..." : "Save"}
+            {isReadOnly ? "Locked" : isSaving ? "Saving..." : "Save"}
           </button>
         </div>
       </form>
@@ -1501,8 +1515,8 @@ function ReservationRecordsTable({
   });
 
   return (
-    <section className="rounded-xl border border-slate-300 bg-white">
-      <div className="border-b border-slate-200 px-4 py-2.5">
+    <section className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+      <div className="shrink-0 border-b border-slate-200 px-4 py-2.5">
         <div className="flex flex-wrap items-center gap-1.5">
           <button
             type="button"
@@ -1608,8 +1622,8 @@ function ReservationRecordsTable({
         </div>
       </div>
 
-      <div className="max-h-[42vh] overflow-auto">
-        <table className="min-w-full text-left text-xs">
+      <div className="min-h-0 flex-1 overflow-auto">
+        <table className="min-w-[760px] text-left text-xs">
           <thead className="sticky top-0 z-10 bg-slate-100 text-[11px] uppercase tracking-wide text-slate-600">
             {table.getHeaderGroups().map((headerGroup) => (
               <tr key={headerGroup.id}>
@@ -1675,6 +1689,7 @@ function ReservationTabsPanel({
   reservationCurrencyId,
   currencyCodeById,
   onHotelBookingSelected,
+  isReadOnly,
 }: {
   reservationId: number | null;
   ownerType: ReservationOwnerType;
@@ -1683,12 +1698,12 @@ function ReservationTabsPanel({
   reservationCurrencyId?: string;
   currencyCodeById?: Record<string, string>;
   onHotelBookingSelected?: (touristIds: number[] | null) => void;
+  isReadOnly: boolean;
 }) {
   const [activeTab, setActiveTab] = useState<TabLabel>("Hotel");
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const hotelManagerRef = useRef<ReservationServiceManagerHandle | null>(null);
   const transferManagerRef = useRef<ReservationServiceManagerHandle | null>(null);
-  const excursionManagerRef = useRef<ReservationServiceManagerHandle | null>(null);
   const flightTicketManagerRef = useRef<ReservationServiceManagerHandle | null>(null);
   const actionButtons = [
     { label: "Add", primary: true },
@@ -1703,18 +1718,19 @@ function ReservationTabsPanel({
     { label: "Set Confirmation" },
   ];
 
-  const supportsActiveTabAdd = activeTab === "Hotel" || activeTab === "Transfer" || activeTab === "Excursion" || activeTab === "Flight Tickets";
-  const supportsSelectedRowActions = activeTab === "Hotel" || activeTab === "Transfer" || activeTab === "Excursion" || activeTab === "Flight Tickets";
+  const isTransferTab = activeTab === "Arrival" || activeTab === "Departure" || activeTab === "Transfer";
+  const supportsActiveTabAdd = activeTab === "Hotel" || isTransferTab || activeTab === "Flight Tickets";
+  const supportsSelectedRowActions = activeTab === "Hotel" || isTransferTab || activeTab === "Flight Tickets";
 
   const runSelectedRowAction = (action: "edit" | "view" | "delete") => {
     const manager =
       activeTab === "Hotel"
         ? hotelManagerRef.current
-        : activeTab === "Excursion"
-          ? excursionManagerRef.current
-          : activeTab === "Flight Tickets"
-            ? flightTicketManagerRef.current
-            : transferManagerRef.current;
+        : activeTab === "Flight Tickets"
+          ? flightTicketManagerRef.current
+          : isTransferTab
+            ? transferManagerRef.current
+            : null;
 
     if (!manager) {
       return;
@@ -1734,8 +1750,8 @@ function ReservationTabsPanel({
   };
 
   return (
-    <section className="flex min-h-0 flex-1 flex-col rounded-xl border border-slate-300 bg-white">
-      <div className="overflow-x-auto border-b border-slate-200 px-2 py-1.5">
+    <section className="flex h-full min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+      <div className="shrink-0 overflow-x-auto border-b border-slate-200 px-2 py-1">
         <div className="flex min-w-max gap-1">
           {TAB_LABELS.map((tabLabel) => (
             <button
@@ -1745,7 +1761,7 @@ function ReservationTabsPanel({
                 setActiveTab(tabLabel);
                 setIsAddModalOpen(false);
               }}
-              className={`rounded-md px-3 py-1.5 text-xs font-semibold transition ${activeTab === tabLabel
+              className={`rounded-lg px-3 py-2 text-xs font-semibold transition ${activeTab === tabLabel
                 ? "bg-slate-800 text-white"
                 : "bg-slate-100 text-slate-700 hover:bg-slate-200"
                 }`}
@@ -1756,12 +1772,12 @@ function ReservationTabsPanel({
         </div>
       </div>
 
-      <div className="overflow-x-auto border-b border-slate-200 px-2 py-1.5">
+      <div className="shrink-0 overflow-x-auto border-b border-slate-200 bg-slate-50/60 px-2 py-1">
         <div className="flex min-w-max items-center gap-1.5">
           <button
             type="button"
             aria-label="Table settings"
-            className="inline-flex h-8 w-8 items-center justify-center rounded border border-slate-300 bg-slate-100 text-slate-600 hover:bg-slate-200"
+            className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-300 bg-white text-slate-600 hover:bg-slate-100"
           >
             <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <line x1="4" y1="21" x2="4" y2="14" />
@@ -1803,12 +1819,14 @@ function ReservationTabsPanel({
               }
               disabled={
                 button.label === "Add"
-                  ? !supportsActiveTabAdd || !reservationId
-                  : button.label === "Edit" || button.label === "View" || button.label === "Delete"
-                    ? !supportsSelectedRowActions || !reservationId
-                    : true
+                  ? isReadOnly || !supportsActiveTabAdd || !reservationId
+                  : button.label === "Edit" || button.label === "Delete"
+                    ? isReadOnly || !supportsSelectedRowActions || !reservationId
+                    : button.label === "View"
+                      ? !supportsSelectedRowActions || !reservationId
+                      : true
               }
-              className={`inline-flex h-8 items-center rounded border px-3 text-xs font-semibold transition ${button.primary
+              className={`inline-flex h-8 items-center rounded-lg border px-3 text-xs font-semibold transition ${button.primary
                 ? "border-[#0f2347] bg-[#0f2347] text-white hover:bg-[#0b1b38]"
                 : "border-slate-300 bg-slate-100 text-slate-700 hover:bg-slate-200"
                 } disabled:cursor-not-allowed disabled:opacity-60`}
@@ -1831,22 +1849,19 @@ function ReservationTabsPanel({
           isAddOpen={isAddModalOpen}
           onCloseAdd={() => setIsAddModalOpen(false)}
           onSelectBooking={onHotelBookingSelected}
+          isReadOnly={isReadOnly}
         />
-      ) : activeTab === "Transfer" ? (
+      ) : isTransferTab ? (
         <TransferServiceManager
           ref={transferManagerRef}
-          key={`transfer-${reservationId ?? "none"}`}
+          key={`transfer-${activeTab}-${reservationId ?? "none"}`}
           reservationId={reservationId}
           tourPackageId={tourPackageId}
           currencyOptions={currencyOptions}
           isAddOpen={isAddModalOpen}
           onCloseAdd={() => setIsAddModalOpen(false)}
-        />
-      ) : activeTab === "Excursion" ? (
-        <ExcursionServiceManager
-          ref={excursionManagerRef}
-          isAddOpen={isAddModalOpen}
-          onCloseAdd={() => setIsAddModalOpen(false)}
+          isReadOnly={isReadOnly}
+          mode={activeTab === "Arrival" ? "ARRIVAL" : activeTab === "Departure" ? "DEPARTURE" : "ALL"}
         />
       ) : activeTab === "Flight Tickets" ? (
         <FlightTicketManager
@@ -1859,24 +1874,30 @@ function ReservationTabsPanel({
           currencyCodeById={currencyCodeById}
           isAddOpen={isAddModalOpen}
           onCloseAdd={() => setIsAddModalOpen(false)}
+          isReadOnly={isReadOnly}
         />
       ) : activeTab === "Activity" ? (
         <ActivityTimeline reservationId={reservationId ?? 0} />
+      ) : activeTab === "All Services" ? (
+        <div className="min-h-0 flex-1 overflow-auto p-4">
+          <div className="rounded-md border border-blue-200 bg-blue-50 p-3">
+            <p className="text-[11px] uppercase tracking-wide text-blue-600">All Services</p>
+            <p className="mt-1 text-sm font-semibold text-blue-900">Summary grid placeholder</p>
+            <p className="mt-1 text-xs text-blue-800">
+              This tab will combine Hotel, Arrival, Departure, Transfer, Flight Tickets, Other, and Excursion lines after the individual modules are stable.
+            </p>
+          </div>
+        </div>
       ) : (
         <div className="min-h-0 flex-1 overflow-auto p-4">
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
-              <p className="text-[11px] uppercase tracking-wide text-slate-500">Section</p>
-              <p className="mt-1 text-sm font-semibold text-slate-800">{activeTab} Details</p>
-            </div>
-            <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
-              <p className="text-[11px] uppercase tracking-wide text-slate-500">Items</p>
-              <p className="mt-1 text-sm font-semibold text-slate-800">No entries yet</p>
-            </div>
-            <div className="rounded-md border border-slate-200 bg-slate-50 p-3 sm:col-span-2 lg:col-span-1">
-              <p className="text-[11px] uppercase tracking-wide text-slate-500">Notes</p>
-              <p className="mt-1 text-sm text-slate-700">Use this tab to manage {activeTab.toLowerCase()} lines.</p>
-            </div>
+          <div className="rounded-md border border-amber-200 bg-amber-50 p-3">
+            <p className="text-[11px] uppercase tracking-wide text-amber-600">{activeTab}</p>
+            <p className="mt-1 text-sm font-semibold text-amber-900">Safe placeholder</p>
+            <p className="mt-1 text-xs text-amber-800">
+              {activeTab === "Excursion"
+                ? "Excursion is intentionally not wired to the standalone ExcursionService manager until the reservation-linked backend strategy is confirmed."
+                : "Other services need a backend strategy before write actions are enabled."}
+            </p>
           </div>
         </div>
       )}
@@ -1886,6 +1907,10 @@ function ReservationTabsPanel({
 
 export default function ReservationsPage() {
   const queryClient = useQueryClient();
+  const { user: currentUser } = useCurrentUser();
+  const isAdmin = Boolean(
+    currentUser?.is_superuser || currentUser?.is_staff || currentUser?.role === "ADMIN"
+  );
   const [currencyOptions, setCurrencyOptions] = useState<SelectOption[]>([]);
   // Derived map: DB currency ID → ISO code (e.g. "3" → "TRY"). Built from currencyOptions
   // so it always matches the same parse logic and is never stale.
@@ -2319,12 +2344,15 @@ export default function ReservationsPage() {
 
   const selectedAgencyDetails =
     form.ownerType === "AGENCY" && form.agencyId ? agencyDetailsById[form.agencyId] ?? null : null;
+  const currentReservationIsReadOnly = form.status.trim().toUpperCase() === "CONFIRMED" && !isAdmin;
 
   return (
-    <section className="space-y-4">
-      <div>
-        <h2 className="text-2xl font-semibold tracking-tight text-slate-900">Reservations</h2>
-        <p className="mt-1 text-sm text-slate-500">High-density reservation management workspace.</p>
+    <section className="space-y-3">
+      <div className="flex items-end justify-between gap-3">
+        <div>
+          <h2 className="text-2xl font-semibold tracking-tight text-slate-900">Reservations</h2>
+          <p className="mt-0.5 text-sm text-slate-500">High-density reservation management workspace.</p>
+        </div>
       </div>
 
       {toastMessage ? (
@@ -2339,11 +2367,11 @@ export default function ReservationsPage() {
         </div>
       ) : null}
 
-      <div className="lg:origin-top-left lg:scale-[0.96] lg:w-[104.1667%] xl:w-full xl:scale-100">
-        <div className="grid h-[calc(100vh-12rem)] min-h-[620px] grid-cols-1 gap-4 lg:grid-cols-12">
+      <div>
+        <div className="grid h-[calc(100vh-9.5rem)] min-h-[580px] grid-cols-1 gap-3 lg:grid-cols-12">
           <div className="min-h-0 lg:col-span-5">
-            <div className="flex h-full min-h-0 flex-col gap-4 overflow-hidden">
-              <div className="min-h-0 flex-[7] overflow-y-auto pr-1">
+            <div className="flex h-full min-h-0 flex-col gap-3 overflow-hidden">
+              <div className="min-h-0 flex-[6] overflow-y-auto pr-1">
                 <ReservationFormPanel
                   form={form}
                   statusOptions={statusOptions}
@@ -2358,15 +2386,17 @@ export default function ReservationsPage() {
                   onChange={updateField}
                   onSave={() => void saveReservationMutation.mutateAsync(form)}
                   isSaving={saveReservationMutation.isPending}
+                  isReadOnly={currentReservationIsReadOnly}
                 />
               </div>
               <div className="min-h-0 flex-[4] overflow-y-auto pr-1">
                 <TouristManager
                   key={`tourists-${activeReservationId ?? "none"}`}
                   reservationId={activeReservationId}
+                  isReadOnly={currentReservationIsReadOnly}
                   filterTouristIds={selectedHotelRoomTouristIds}
                   onTouristAdded={async (tourist) => {
-                    if (!activeReservationId || !form.tourPackageId) return;
+                    if (currentReservationIsReadOnly || !activeReservationId || !form.tourPackageId) return;
                     const parsedPkgId = Number.parseInt(form.tourPackageId, 10);
                     if (!Number.isFinite(parsedPkgId)) return;
                     try {
@@ -2427,8 +2457,8 @@ export default function ReservationsPage() {
           </div>
 
           <div className="min-h-0 lg:col-span-7">
-            <div className="flex h-full min-h-0 flex-col gap-4 overflow-hidden">
-              <div className="min-h-0 flex-[6]">
+            <div className="flex h-full min-h-0 flex-col gap-3 overflow-hidden">
+              <div className="min-h-0 flex-[5] pb-1">
                 <ReservationRecordsTable
                   rows={reservationsQuery.data ?? []}
                   loading={reservationsQuery.isLoading}
@@ -2438,28 +2468,28 @@ export default function ReservationsPage() {
                   onFinalize={() => {
                     void finalizeReservationMutation.mutateAsync(form);
                   }}
-                  canFinalize={Boolean(form.id)}
+                  canFinalize={Boolean(form.id) && !currentReservationIsReadOnly}
                   isFinalizing={finalizeReservationMutation.isPending}
                   onTake={() => {
                     if (form.id) {
                       void takeReservationMutation.mutateAsync(form.id);
                     }
                   }}
-                  canTake={Boolean(form.id)}
+                  canTake={Boolean(form.id) && !currentReservationIsReadOnly}
                   isTaking={takeReservationMutation.isPending}
                   onConfirm={() => {
                     if (form.id) {
                       void confirmReservationMutation.mutateAsync(form.id);
                     }
                   }}
-                  canConfirm={Boolean(form.id)}
+                  canConfirm={Boolean(form.id) && !currentReservationIsReadOnly}
                   isConfirming={confirmReservationMutation.isPending}
                   ownerLabelById={ownerLabelById}
                   tourPackageLabelById={tourPackageLabelById}
                   currencyLabelById={currencyLabelById}
                 />
               </div>
-              <div className="min-h-0 flex-[4]">
+              <div className="min-h-0 flex-[5] pt-1">
                 <ReservationTabsPanel
                   reservationId={activeReservationId}
                   ownerType={form.ownerType}
@@ -2468,6 +2498,7 @@ export default function ReservationsPage() {
                   reservationCurrencyId={form.currencyId}
                   currencyCodeById={currencyCodeById}
                   onHotelBookingSelected={setSelectedHotelRoomTouristIds}
+                  isReadOnly={currentReservationIsReadOnly}
                 />
               </div>
             </div>

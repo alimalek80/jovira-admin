@@ -32,6 +32,14 @@ export type ReservationServiceManagerHandle = {
   deleteSelected: () => void;
 };
 
+type TransferServiceMode = "ALL" | "ARRIVAL" | "DEPARTURE";
+
+function transferModeTitle(mode: TransferServiceMode) {
+  if (mode === "ARRIVAL") return "Arrival";
+  if (mode === "DEPARTURE") return "Departure";
+  return "Transfer";
+}
+
 function toDateLabel(value: string | null | undefined) {
   if (!value) {
     return "-";
@@ -47,15 +55,15 @@ function toDateLabel(value: string | null | undefined) {
 
 function ModalShell({ title, children, onClose }: { title: string; children: React.ReactNode; onClose: () => void }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4">
-      <div className="flex max-h-[85vh] w-full max-w-2xl flex-col rounded-xl border border-slate-200 bg-white shadow-xl">
-        <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-3">
+      <div className="flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl">
+        <div className="flex shrink-0 items-center justify-between border-b border-slate-200 px-4 py-2.5">
           <h4 className="text-sm font-semibold text-slate-900">{title}</h4>
           <button type="button" onClick={onClose} className="rounded-md border border-slate-200 px-2 py-1 text-xs text-slate-600 hover:bg-slate-100">
             Close
           </button>
         </div>
-        <div className="min-h-0 overflow-y-auto p-4">{children}</div>
+        <div className="min-h-0 flex-1 overflow-y-auto p-3">{children}</div>
       </div>
     </div>
   );
@@ -132,8 +140,9 @@ export const HotelBookingManager = forwardRef<
     isAddOpen: boolean;
     onCloseAdd: () => void;
     onSelectBooking?: (touristIds: number[] | null) => void;
+    isReadOnly?: boolean;
   }
->(function HotelBookingManager({ reservationId, ownerType, currencyOptions, reservationCurrencyId, currencyCodeById, isAddOpen, onCloseAdd, onSelectBooking }, ref) {
+>(function HotelBookingManager({ reservationId, ownerType, currencyOptions, reservationCurrencyId, currencyCodeById, isAddOpen, onCloseAdd, onSelectBooking, isReadOnly = false }, ref) {
   const queryClient = useQueryClient();
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [isViewOpen, setIsViewOpen] = useState(false);
@@ -179,6 +188,10 @@ export const HotelBookingManager = forwardRef<
 
   useImperativeHandle(ref, () => ({
     openEdit: () => {
+      if (isReadOnly) {
+        window.alert("This reservation is locked. Hotel bookings cannot be edited.");
+        return;
+      }
       if (!selectedBooking) {
         window.alert("Select a hotel row first.");
         return;
@@ -193,6 +206,10 @@ export const HotelBookingManager = forwardRef<
       setIsViewOpen(true);
     },
     deleteSelected: () => {
+      if (isReadOnly) {
+        window.alert("This reservation is locked. Hotel bookings cannot be deleted or cancelled.");
+        return;
+      }
       if (!selectedBooking) {
         window.alert("Select a hotel row first.");
         return;
@@ -211,7 +228,7 @@ export const HotelBookingManager = forwardRef<
       if (!confirmed) return;
       void deleteMutation.mutateAsync(selectedBooking.id);
     },
-  }), [deleteMutation, cancelMutation, selectedBooking]);
+  }), [deleteMutation, cancelMutation, isReadOnly, selectedBooking]);
 
   useEffect(() => {
     if (!toastMessage) {
@@ -223,8 +240,13 @@ export const HotelBookingManager = forwardRef<
   }, [toastMessage]);
 
   return (
-    <div className="min-h-0 flex-1 overflow-auto p-4">
-      {toastMessage ? <div className="mb-3 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-700">{toastMessage}</div> : null}
+    <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden p-3">
+      {toastMessage ? <div className="mb-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-700">{toastMessage}</div> : null}
+      {isReadOnly ? (
+        <div className="mb-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800">
+          This reservation is locked. Hotel bookings cannot be added, edited, cancelled, or deleted.
+        </div>
+      ) : null}
 
       {typeof reservationId !== "number" || reservationId <= 0 ? (
         <p className="text-xs text-slate-500">Save or select a reservation to manage hotel lines.</p>
@@ -233,7 +255,8 @@ export const HotelBookingManager = forwardRef<
       ) : !query.data || query.data.length === 0 ? (
         <p className="text-xs text-slate-500">No hotel lines added yet.</p>
       ) : (
-        <table className="min-w-full rounded-md border border-slate-200 text-left text-[11px]">
+        <div className="min-h-0 flex-1 overflow-auto rounded-lg border border-slate-200 rustar-scroll">
+          <table className="min-w-[760px] text-left text-[11px]">
           <thead className="sticky top-0 bg-slate-100 text-slate-600">
             <tr>
               <th className="border-b border-slate-200 px-2 py-1.5 font-semibold">Room</th>
@@ -257,7 +280,7 @@ export const HotelBookingManager = forwardRef<
                   setSelectedId(booking.id);
                   onSelectBooking?.(booking.tourists?.length ? booking.tourists : null);
                 }}
-                onDoubleClick={() => { setSelectedId(booking.id); setIsEditOpen(true); onSelectBooking?.(booking.tourists?.length ? booking.tourists : null); }}
+                onDoubleClick={() => { setSelectedId(booking.id); if (!isReadOnly) setIsEditOpen(true); else setIsViewOpen(true); onSelectBooking?.(booking.tourists?.length ? booking.tourists : null); }}
                 className={`cursor-pointer ${
                   selectedBooking?.id === booking.id
                     ? "bg-amber-200/80 hover:bg-amber-200"
@@ -296,10 +319,11 @@ export const HotelBookingManager = forwardRef<
               </tr>
             ))}
           </tbody>
-        </table>
+          </table>
+        </div>
       )}
 
-      {isAddOpen && typeof reservationId === "number" && reservationId > 0 ? (
+      {isAddOpen && !isReadOnly && typeof reservationId === "number" && reservationId > 0 ? (
         <ModalShell title="Add Hotel Booking" onClose={onCloseAdd}>
           <HotelBookingForm
             reservationId={reservationId}
@@ -322,7 +346,7 @@ export const HotelBookingManager = forwardRef<
         </ModalShell>
       ) : null}
 
-      {isEditOpen && selectedBooking ? (
+      {isEditOpen && !isReadOnly && selectedBooking ? (
         <ModalShell title="Edit Hotel Booking" onClose={() => setIsEditOpen(false)}>
           <HotelBookingForm
             key={`edit-hotel-${selectedBooking.id}`}
@@ -352,8 +376,10 @@ export const TransferServiceManager = forwardRef<
     currencyOptions: Array<{ id: string; label: string }>;
     isAddOpen: boolean;
     onCloseAdd: () => void;
+    isReadOnly?: boolean;
+    mode?: TransferServiceMode;
   }
->(function TransferServiceManager({ reservationId, tourPackageId, currencyOptions, isAddOpen, onCloseAdd }, ref) {
+>(function TransferServiceManager({ reservationId, tourPackageId, currencyOptions, isAddOpen, onCloseAdd, isReadOnly = false, mode = "ALL" }, ref) {
   const queryClient = useQueryClient();
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [isViewOpen, setIsViewOpen] = useState(false);
@@ -373,9 +399,16 @@ export const TransferServiceManager = forwardRef<
     enabled: typeof reservationId === "number" && reservationId > 0,
   });
 
+  const displayedServices = useMemo(() => {
+    const rows = query.data ?? [];
+    if (mode === "ARRIVAL") return rows.filter((service) => service.onArrival);
+    if (mode === "DEPARTURE") return rows.filter((service) => service.onDeparture);
+    return rows;
+  }, [mode, query.data]);
+
   const selectedService = useMemo(
-    () => query.data?.find((service) => service.id === selectedId) ?? null,
-    [query.data, selectedId]
+    () => displayedServices.find((service) => service.id === selectedId) ?? null,
+    [displayedServices, selectedId]
   );
 
   const deleteMutation = useMutation({
@@ -389,6 +422,10 @@ export const TransferServiceManager = forwardRef<
 
   useImperativeHandle(ref, () => ({
     openEdit: () => {
+      if (isReadOnly) {
+        window.alert("This reservation is locked. Transfer services cannot be edited.");
+        return;
+      }
       if (!selectedService) {
         window.alert("Select a transfer row first.");
         return;
@@ -403,6 +440,10 @@ export const TransferServiceManager = forwardRef<
       setIsViewOpen(true);
     },
     deleteSelected: () => {
+      if (isReadOnly) {
+        window.alert("This reservation is locked. Transfer services cannot be deleted.");
+        return;
+      }
       if (!selectedService) {
         window.alert("Select a transfer row first.");
         return;
@@ -415,7 +456,7 @@ export const TransferServiceManager = forwardRef<
 
       void deleteMutation.mutateAsync(selectedService.id);
     },
-  }), [deleteMutation, selectedService]);
+  }), [deleteMutation, isReadOnly, selectedService]);
 
   useEffect(() => {
     if (!toastMessage) {
@@ -427,17 +468,31 @@ export const TransferServiceManager = forwardRef<
   }, [toastMessage]);
 
   return (
-    <div className="min-h-0 flex-1 overflow-auto p-4">
+    <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden p-3">
+      <div className="mb-2 shrink-0 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">
+        <span className="font-semibold">{transferModeTitle(mode)} mode:</span>{" "}
+        {mode === "ARRIVAL"
+          ? "showing arrival transfer services only."
+          : mode === "DEPARTURE"
+            ? "showing departure transfer services only."
+            : "showing all transfer services."}
+      </div>
       {toastMessage ? <div className="mb-3 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-700">{toastMessage}</div> : null}
+      {isReadOnly ? (
+        <div className="mb-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800">
+          This reservation is locked. Transfer services cannot be added, edited, or deleted.
+        </div>
+      ) : null}
 
       {typeof reservationId !== "number" || reservationId <= 0 ? (
         <p className="text-xs text-slate-500">Save or select a reservation to manage transfer lines.</p>
       ) : query.isLoading ? (
         <p className="text-xs text-slate-500">Loading transfer lines...</p>
-      ) : !query.data || query.data.length === 0 ? (
-        <p className="text-xs text-slate-500">No transfer lines added yet.</p>
+      ) : displayedServices.length === 0 ? (
+        <p className="text-xs text-slate-500">No {transferModeTitle(mode).toLowerCase()} lines added yet.</p>
       ) : (
-        <table className="min-w-full rounded-md border border-slate-200 text-left text-[11px]">
+        <div className="min-h-0 flex-1 overflow-auto rounded-lg border border-slate-200 rustar-scroll">
+          <table className="min-w-[760px] text-left text-[11px]">
           <thead className="sticky top-0 bg-slate-100 text-slate-600">
             <tr>
               <th className="border-b border-slate-200 px-2 py-1.5 font-semibold">Service</th>
@@ -449,7 +504,7 @@ export const TransferServiceManager = forwardRef<
             </tr>
           </thead>
           <tbody>
-            {query.data.map((service, index) => (
+            {displayedServices.map((service, index) => (
               <tr
                 key={service.id}
                 onClick={() => setSelectedId(service.id)}
@@ -470,15 +525,17 @@ export const TransferServiceManager = forwardRef<
               </tr>
             ))}
           </tbody>
-        </table>
+          </table>
+        </div>
       )}
 
-      {isAddOpen && typeof reservationId === "number" && reservationId > 0 ? (
+      {isAddOpen && !isReadOnly && typeof reservationId === "number" && reservationId > 0 ? (
         <ModalShell title="Add Transfer Service" onClose={onCloseAdd}>
           <TransferServiceForm
             reservationId={reservationId}
             tourPackageId={tourPackageId}
             currencyOptions={currencyOptions}
+            mode={mode}
             onCancel={onCloseAdd}
             onSuccess={() => {
               onCloseAdd();
@@ -494,7 +551,7 @@ export const TransferServiceManager = forwardRef<
         </ModalShell>
       ) : null}
 
-      {isEditOpen && selectedService ? (
+      {isEditOpen && !isReadOnly && selectedService ? (
         <ModalShell title="Edit Transfer Service" onClose={() => setIsEditOpen(false)}>
           <TransferServiceForm
             key={`edit-transfer-${selectedService.id}`}
@@ -502,6 +559,7 @@ export const TransferServiceManager = forwardRef<
             tourPackageId={tourPackageId}
             currencyOptions={currencyOptions}
             service={selectedService}
+            mode={mode}
             onCancel={() => setIsEditOpen(false)}
             onSuccess={() => {
               setIsEditOpen(false);
@@ -544,8 +602,9 @@ export const ExcursionServiceManager = forwardRef<
   {
     isAddOpen: boolean;
     onCloseAdd: () => void;
+    isReadOnly?: boolean;
   }
->(function ExcursionServiceManager({ isAddOpen, onCloseAdd }, ref) {
+>(function ExcursionServiceManager({ isAddOpen, onCloseAdd, isReadOnly = false }, ref) {
   const queryClient = useQueryClient();
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [isViewOpen, setIsViewOpen] = useState(false);
@@ -576,6 +635,10 @@ export const ExcursionServiceManager = forwardRef<
 
   useImperativeHandle(ref, () => ({
     openEdit: () => {
+      if (isReadOnly) {
+        window.alert("This reservation is locked. Excursion services cannot be edited.");
+        return;
+      }
       if (!selectedService) {
         window.alert("Select an excursion row first.");
         return;
@@ -590,6 +653,10 @@ export const ExcursionServiceManager = forwardRef<
       setIsViewOpen(true);
     },
     deleteSelected: () => {
+      if (isReadOnly) {
+        window.alert("This reservation is locked. Excursion services cannot be deleted.");
+        return;
+      }
       if (!selectedService) {
         window.alert("Select an excursion row first.");
         return;
@@ -598,7 +665,7 @@ export const ExcursionServiceManager = forwardRef<
       if (!confirmed) return;
       void deleteMutation.mutateAsync(selectedService.id);
     },
-  }), [deleteMutation, selectedService]);
+  }), [deleteMutation, isReadOnly, selectedService]);
 
   useEffect(() => {
     if (!toastMessage) return;
@@ -607,10 +674,15 @@ export const ExcursionServiceManager = forwardRef<
   }, [toastMessage]);
 
   return (
-    <div className="min-h-0 flex-1 overflow-auto p-4">
+    <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden p-3">
       {toastMessage ? (
         <div className="mb-3 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-700">
           {toastMessage}
+        </div>
+      ) : null}
+      {isReadOnly ? (
+        <div className="mb-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800">
+          This reservation is locked. Excursion services cannot be added, edited, or deleted.
         </div>
       ) : null}
 
@@ -663,7 +735,7 @@ export const ExcursionServiceManager = forwardRef<
         </table>
       )}
 
-      {isAddOpen ? (
+      {isAddOpen && !isReadOnly ? (
         <ModalShell title="Add Excursion Service" onClose={onCloseAdd}>
           <ExcursionServiceForm
             onCancel={onCloseAdd}
@@ -681,7 +753,7 @@ export const ExcursionServiceManager = forwardRef<
         </ModalShell>
       ) : null}
 
-      {isEditOpen && selectedService ? (
+      {isEditOpen && !isReadOnly && selectedService ? (
         <ModalShell title="Edit Excursion Service" onClose={() => setIsEditOpen(false)}>
           <ExcursionServiceForm
             key={`edit-excursion-${selectedService.id}`}
@@ -1014,8 +1086,9 @@ export const FlightTicketManager = forwardRef<
     currencyCodeById?: Record<string, string>;
     isAddOpen: boolean;
     onCloseAdd: () => void;
+    isReadOnly?: boolean;
   }
->(function FlightTicketManager({ reservationId, ownerType, currencyOptions, reservationCurrencyId, currencyCodeById, isAddOpen, onCloseAdd }, ref) {
+>(function FlightTicketManager({ reservationId, ownerType, currencyOptions, reservationCurrencyId, currencyCodeById, isAddOpen, onCloseAdd, isReadOnly = false }, ref) {
   const queryClient = useQueryClient();
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [isViewOpen, setIsViewOpen] = useState(false);
@@ -1155,6 +1228,10 @@ export const FlightTicketManager = forwardRef<
 
   useImperativeHandle(ref, () => ({
     openEdit: () => {
+      if (isReadOnly) {
+        window.alert("This reservation is locked. Flight tickets cannot be edited.");
+        return;
+      }
       if (!selectedTicket) {
         window.alert("Select a flight ticket row first.");
         return;
@@ -1169,6 +1246,10 @@ export const FlightTicketManager = forwardRef<
       setIsViewOpen(true);
     },
     deleteSelected: () => {
+      if (isReadOnly) {
+        window.alert("This reservation is locked. Flight tickets cannot be deleted.");
+        return;
+      }
       if (!selectedTicket) {
         window.alert("Select a flight ticket row first.");
         return;
@@ -1177,7 +1258,7 @@ export const FlightTicketManager = forwardRef<
       if (!confirmed) return;
       void deleteMutation.mutateAsync(selectedTicket.id);
     },
-  }), [deleteMutation, selectedTicket]);
+  }), [deleteMutation, isReadOnly, selectedTicket]);
 
   useEffect(() => {
     if (!toastMessage) return;
@@ -1190,6 +1271,11 @@ export const FlightTicketManager = forwardRef<
       {toastMessage ? (
         <div className="mb-3 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-700">
           {toastMessage}
+        </div>
+      ) : null}
+      {isReadOnly ? (
+        <div className="mb-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800">
+          This reservation is locked. Flight tickets cannot be added, edited, or deleted.
         </div>
       ) : null}
 
@@ -1270,7 +1356,7 @@ export const FlightTicketManager = forwardRef<
         </table>
       )}
 
-      {isAddOpen && typeof reservationId === "number" && reservationId > 0 ? (
+      {isAddOpen && !isReadOnly && typeof reservationId === "number" && reservationId > 0 ? (
         <ModalShell title="Add Flight Ticket" onClose={onCloseAdd}>
           <FlightTicketForm
             reservationId={reservationId}
@@ -1293,7 +1379,7 @@ export const FlightTicketManager = forwardRef<
         </ModalShell>
       ) : null}
 
-      {isEditOpen && selectedTicket ? (
+      {isEditOpen && !isReadOnly && selectedTicket ? (
         <ModalShell title="Edit Flight Ticket" onClose={() => setIsEditOpen(false)}>
           <FlightTicketForm
             key={`edit-flight-ticket-${selectedTicket.id}`}
@@ -1314,4 +1400,5 @@ export const FlightTicketManager = forwardRef<
     </div>
   );
 });
+
 
