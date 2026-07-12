@@ -15,6 +15,7 @@ import {
   TransferServiceManager,
   FlightTicketManager,
   OtherServiceManager,
+  AllServicesPanel,
   type ReservationServiceManagerHandle,
 } from "../../../components/reservations/ReservationServiceManagers";
 import TouristManager from "@/components/reservations/TouristManager";
@@ -1893,15 +1894,11 @@ function ReservationTabsPanel({
           isReadOnly={isReadOnly}
         />
       ) : activeTab === "All Services" ? (
-        <div className="min-h-0 flex-1 overflow-auto p-4">
-          <div className="rounded-md border border-blue-200 bg-blue-50 p-3">
-            <p className="text-[11px] uppercase tracking-wide text-blue-600">All Services</p>
-            <p className="mt-1 text-sm font-semibold text-blue-900">Summary grid placeholder</p>
-            <p className="mt-1 text-xs text-blue-800">
-              This tab will combine Hotel, Arrival, Departure, Transfer, Flight Tickets, Other, and Excursion lines after the individual modules are stable.
-            </p>
-          </div>
-        </div>
+        <AllServicesPanel
+          key={`all-services-${reservationId ?? "none"}`}
+          reservationId={reservationId}
+          currencyOptions={currencyOptions}
+        />
       ) : (
         <div className="min-h-0 flex-1 overflow-auto p-4">
           <div className="rounded-md border border-amber-200 bg-amber-50 p-3">

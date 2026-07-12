@@ -1676,3 +1676,262 @@ export const OtherServiceManager = forwardRef<
   );
 });
 
+// ─── AllServicesPanel ─────────────────────────────────────────────────────────
+
+type ServiceRow = {
+  key: string;
+  serviceType: string;
+  description: string;
+  date: string;
+  price: string;
+  currencyId: string;
+  cost: string;
+  costCurrencyId: string;
+  isPaid: boolean;
+  confirmNumber: string;
+  status: string;
+};
+
+export function AllServicesPanel({
+  reservationId,
+  currencyOptions,
+}: {
+  reservationId: number | null;
+  currencyOptions: Array<{ id: string; label: string }>;
+}) {
+  const currencyLabelById = useMemo(
+    () =>
+      currencyOptions.reduce<Record<string, string>>((acc, opt) => {
+        acc[opt.id] = opt.label;
+        return acc;
+      }, {}),
+    [currencyOptions]
+  );
+
+  const hotelQuery = useQuery({
+    queryKey: ["reservation-service", "hotel", reservationId],
+    queryFn: async () => listHotelBookings("admin", reservationId as number),
+    enabled: typeof reservationId === "number" && reservationId > 0,
+    staleTime: 30_000,
+  });
+
+  const transferQuery = useQuery({
+    queryKey: ["reservation-service", "transfer", reservationId],
+    queryFn: async () => listTransferServices("admin", reservationId as number),
+    enabled: typeof reservationId === "number" && reservationId > 0,
+    staleTime: 30_000,
+  });
+
+  const flightQuery = useQuery({
+    queryKey: ["reservation-service", "flight-ticket", reservationId],
+    queryFn: async () => listFlightTickets(reservationId as number),
+    enabled: typeof reservationId === "number" && reservationId > 0,
+    staleTime: 30_000,
+  });
+
+  const otherQuery = useQuery({
+    queryKey: ["reservation-service", "other", reservationId],
+    queryFn: async () => listOtherServices(reservationId as number),
+    enabled: typeof reservationId === "number" && reservationId > 0,
+    staleTime: 30_000,
+  });
+
+  const isLoading =
+    hotelQuery.isLoading ||
+    transferQuery.isLoading ||
+    flightQuery.isLoading ||
+    otherQuery.isLoading;
+
+  const rows = useMemo<ServiceRow[]>(() => {
+    const result: ServiceRow[] = [];
+
+    for (const booking of hotelQuery.data ?? []) {
+      result.push({
+        key: `hotel-${booking.id}`,
+        serviceType: "HOTEL",
+        description: booking.roomLabel || "-",
+        date: toDateLabel(booking.checkInDate),
+        price: booking.price ?? "-",
+        currencyId: booking.sellingCurrencyId ?? "",
+        cost: booking.cost ?? "-",
+        costCurrencyId: booking.costCurrencyId ?? "",
+        isPaid: booking.isPaid,
+        confirmNumber: booking.confirmBookingNumber || "-",
+        status: booking.status,
+      });
+    }
+
+    for (const service of transferQuery.data ?? []) {
+      const serviceType = service.onArrival && service.onDeparture
+        ? "TRANSFER"
+        : service.onArrival
+          ? "ARRIVAL"
+          : "DEPARTURE";
+      result.push({
+        key: `transfer-${service.id}`,
+        serviceType,
+        description: service.serviceName || `${service.fromLocationName} → ${service.toLocationName}`,
+        date: toDateLabel(service.serviceDate),
+        price: service.price ?? "-",
+        currencyId: service.currencyId ?? "",
+        cost: "-",
+        costCurrencyId: "",
+        isPaid: false,
+        confirmNumber: "-",
+        status: "-",
+      });
+    }
+
+    for (const ticket of flightQuery.data ?? []) {
+      result.push({
+        key: `flight-${ticket.id}`,
+        serviceType: "FLIGHT",
+        description: `${ticket.flightLabel || ticket.flightId}${ticket.touristName ? ` / ${ticket.touristName}` : ""}`,
+        date: toDateLabel(ticket.departureDate),
+        price: ticket.price ?? "-",
+        currencyId: ticket.currencyId ?? "",
+        cost: "-",
+        costCurrencyId: "",
+        isPaid: ticket.paid,
+        confirmNumber: ticket.ticketNumber || "-",
+        status: ticket.paid ? "PAID" : "UNPAID",
+      });
+    }
+
+    for (const service of otherQuery.data ?? []) {
+      result.push({
+        key: `other-${service.id}`,
+        serviceType: "OTHER",
+        description: service.serviceName || "-",
+        date: toDateLabel(service.serviceDate),
+        price: service.price ?? "-",
+        currencyId: service.sellingCurrencyId ?? "",
+        cost: service.cost ?? "-",
+        costCurrencyId: service.costCurrencyId ?? "",
+        isPaid: service.isPaid,
+        confirmNumber: "-",
+        status: service.isPaid ? "PAID" : "UNPAID",
+      });
+    }
+
+    return result;
+  }, [hotelQuery.data, transferQuery.data, flightQuery.data, otherQuery.data]);
+
+  // Financial totals grouped by selling currency
+  const totals = useMemo(() => {
+    const selling: Record<string, number> = {};
+    const cost: Record<string, number> = {};
+
+    for (const row of rows) {
+      const priceNum = parseFloat(row.price);
+      const costNum = parseFloat(row.cost);
+      const selLabel = currencyLabelById[row.currencyId] || row.currencyId || "?";
+      const costLabel = currencyLabelById[row.costCurrencyId] || row.costCurrencyId || "?";
+
+      if (Number.isFinite(priceNum) && selLabel !== "?") {
+        selling[selLabel] = (selling[selLabel] ?? 0) + priceNum;
+      }
+      if (Number.isFinite(costNum) && costLabel !== "?") {
+        cost[costLabel] = (cost[costLabel] ?? 0) + costNum;
+      }
+    }
+
+    return { selling, cost };
+  }, [rows, currencyLabelById]);
+
+  const serviceTypeColors: Record<string, string> = {
+    HOTEL: "bg-blue-100 text-blue-800",
+    ARRIVAL: "bg-emerald-100 text-emerald-800",
+    DEPARTURE: "bg-violet-100 text-violet-800",
+    TRANSFER: "bg-cyan-100 text-cyan-800",
+    FLIGHT: "bg-amber-100 text-amber-800",
+    OTHER: "bg-slate-100 text-slate-700",
+  };
+
+  if (!reservationId || reservationId <= 0) {
+    return (
+      <div className="p-4">
+        <p className="text-xs text-slate-500">Save or select a reservation to see all services.</p>
+      </div>
+    );
+  }
+
+  if (isLoading) {
+    return (
+      <div className="p-4">
+        <p className="text-xs text-slate-500">Loading all services...</p>
+      </div>
+    );
+  }
+
+  if (rows.length === 0) {
+    return (
+      <div className="p-4">
+        <p className="text-xs text-slate-500">No services added to this reservation yet.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex h-full min-h-0 flex-col overflow-hidden p-3">
+      <div className="min-h-0 flex-1 overflow-auto rounded-lg border border-slate-200 rustar-scroll">
+        <table className="min-w-[800px] text-left text-[11px]">
+          <thead className="sticky top-0 bg-slate-100 text-slate-600">
+            <tr>
+              <th className="border-b border-slate-200 px-2 py-1.5 font-semibold">Type</th>
+              <th className="border-b border-slate-200 px-2 py-1.5 font-semibold">Description</th>
+              <th className="border-b border-slate-200 px-2 py-1.5 font-semibold">Date</th>
+              <th className="border-b border-slate-200 px-2 py-1.5 font-semibold">Price</th>
+              <th className="border-b border-slate-200 px-2 py-1.5 font-semibold">Currency</th>
+              <th className="border-b border-slate-200 px-2 py-1.5 font-semibold">Cost</th>
+              <th className="border-b border-slate-200 px-2 py-1.5 font-semibold">Paid</th>
+              <th className="border-b border-slate-200 px-2 py-1.5 font-semibold">Confirm #</th>
+              <th className="border-b border-slate-200 px-2 py-1.5 font-semibold">Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row, index) => (
+              <tr
+                key={row.key}
+                className={index % 2 === 0 ? "bg-white" : "bg-slate-50"}
+              >
+                <td className="border-b border-slate-100 px-2 py-1.5">
+                  <span className={`inline-flex rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${serviceTypeColors[row.serviceType] ?? "bg-slate-100 text-slate-700"}`}>
+                    {row.serviceType}
+                  </span>
+                </td>
+                <td className="border-b border-slate-100 px-2 py-1.5 font-medium text-slate-800 max-w-[200px] truncate">{row.description}</td>
+                <td className="border-b border-slate-100 px-2 py-1.5 text-slate-700">{row.date}</td>
+                <td className="border-b border-slate-100 px-2 py-1.5 text-slate-700">{row.price}</td>
+                <td className="border-b border-slate-100 px-2 py-1.5 text-slate-700">{currencyLabelById[row.currencyId] ?? row.currencyId ?? "-"}</td>
+                <td className="border-b border-slate-100 px-2 py-1.5 text-slate-500 italic">{row.cost}</td>
+                <td className={`border-b border-slate-100 px-2 py-1.5 font-medium ${row.isPaid ? "text-emerald-700" : "text-rose-600"}`}>
+                  {row.isPaid ? "Paid" : "Unpaid"}
+                </td>
+                <td className="border-b border-slate-100 px-2 py-1.5 text-slate-500">{row.confirmNumber}</td>
+                <td className="border-b border-slate-100 px-2 py-1.5 text-slate-700">{row.status}</td>
+              </tr>
+            ))}
+          </tbody>
+          <tfoot>
+            <tr className="bg-slate-100 font-semibold text-slate-800">
+              <td className="px-2 py-1.5" colSpan={3}>
+                Total ({rows.length} service{rows.length !== 1 ? "s" : ""})
+              </td>
+              <td className="px-2 py-1.5" colSpan={2}>
+                {Object.entries(totals.selling).map(([cur, amt]) => (
+                  <span key={cur} className="mr-2">{amt.toFixed(2)} {cur}</span>
+                ))}
+              </td>
+              <td className="px-2 py-1.5" colSpan={3}>
+                Cost: {Object.entries(totals.cost).map(([cur, amt]) => (
+                  <span key={cur} className="mr-2">{amt.toFixed(2)} {cur}</span>
+                ))}
+              </td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </div>
+  );
+}
