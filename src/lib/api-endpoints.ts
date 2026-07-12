@@ -65,6 +65,7 @@ export const RESERVATIONS_ENDPOINTS = {
   adminExcursionBookings: `${API_V1}/reservations/admin/excursion-bookings/`,
   adminTransferServices: `${API_V1}/reservations/admin/transfer-services/`,
   adminExcursionServices: `${API_V1}/reservations/admin/excursion-services/`,
+  adminOtherServices: `${API_V1}/reservations/admin/other-services/`,
   adminReservationActivityLogs: `${API_V1}/reservations/admin/reservation-activity-logs/`,
 };
 

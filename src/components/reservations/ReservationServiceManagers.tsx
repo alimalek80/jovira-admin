@@ -14,15 +14,19 @@ import {
   listTransferServices,
   listExcursionServices,
   listFlightTickets,
+  listOtherServices,
   createFlightTicket,
   updateFlightTicket,
   deleteFlightTicket,
+  deleteOtherService,
   type HotelBooking,
   type TransferService,
   type ExcursionService,
   type FlightTicket,
   type FlightTicketInput,
+  type OtherService,
 } from "@/lib/api/reservation-services";
+import OtherServiceForm from "@/components/reservations/OtherServiceForm";
 import { convertCurrencyAmount, listAdminFlightOptions } from "@/lib/api/tour-packages";
 import { listTourists } from "@/lib/api/tourists";
 
@@ -1453,4 +1457,222 @@ export const FlightTicketManager = forwardRef<
   );
 });
 
+// ─── OtherServiceManager ──────────────────────────────────────────────────────
+
+function OtherViewPanel({ service, currencyLabelById }: {
+  service: OtherService;
+  currencyLabelById: Record<string, string>;
+}) {
+  const selCur = service.sellingCurrencyId ? (currencyLabelById[service.sellingCurrencyId] ?? service.sellingCurrencyId) : "";
+  const costCur = service.costCurrencyId ? (currencyLabelById[service.costCurrencyId] ?? service.costCurrencyId) : "";
+  return (
+    <div className="grid gap-2.5 sm:grid-cols-2">
+      <ViewField label="Service Date" value={toDateLabel(service.serviceDate)} />
+      <ViewField label="Paid" value={service.isPaid ? "Yes" : "No"} />
+      <ViewField label="Service Name" value={service.serviceName} />
+      <ViewField label="System Date" value={toDateLabel(service.systemDate)} />
+      <ViewField label="Price" value={service.price ? `${service.price} ${selCur}`.trim() : "-"} />
+      <ViewField label="Selling Currency" value={selCur || "-"} />
+      <ViewField label="Cost" value={service.cost ? `${service.cost} ${costCur}`.trim() : "-"} />
+      <ViewField label="Cost Currency" value={costCur || "-"} />
+      <ViewField label="Cross-Currency Rate" value={service.crossCurrencyRate} />
+      <div className="sm:col-span-2">
+        <ViewField label="Note" value={service.note || "-"} />
+      </div>
+    </div>
+  );
+}
+
+export const OtherServiceManager = forwardRef<
+  ReservationServiceManagerHandle,
+  {
+    reservationId: number | null;
+    currencyOptions: Array<{ id: string; label: string }>;
+    isAddOpen: boolean;
+    onCloseAdd: () => void;
+    isReadOnly?: boolean;
+  }
+>(function OtherServiceManager({ reservationId, currencyOptions, isAddOpen, onCloseAdd, isReadOnly = false }, ref) {
+  const queryClient = useQueryClient();
+  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [isViewOpen, setIsViewOpen] = useState(false);
+  const [isEditOpen, setIsEditOpen] = useState(false);
+  const [toastMessage, setToastMessage] = useState("");
+
+  const currencyLabelById = useMemo(
+    () =>
+      currencyOptions.reduce<Record<string, string>>((acc, opt) => {
+        acc[opt.id] = opt.label;
+        return acc;
+      }, {}),
+    [currencyOptions]
+  );
+
+  const query = useQuery({
+    queryKey: ["reservation-service", "other", reservationId],
+    queryFn: async () => listOtherServices(reservationId as number),
+    enabled: typeof reservationId === "number" && reservationId > 0,
+  });
+
+  const selectedService = useMemo(
+    () => query.data?.find((s) => s.id === selectedId) ?? null,
+    [query.data, selectedId]
+  );
+
+  const deleteMutation = useMutation({
+    mutationFn: async (serviceId: number) => deleteOtherService(serviceId),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["reservation-service", "other", reservationId] });
+      setToastMessage("Other service deleted successfully.");
+      setSelectedId(null);
+    },
+  });
+
+  useImperativeHandle(ref, () => ({
+    openEdit: () => {
+      if (isReadOnly) {
+        window.alert("This reservation is locked. Other services cannot be edited.");
+        return;
+      }
+      if (!selectedService) {
+        window.alert("Select an other service row first.");
+        return;
+      }
+      setIsEditOpen(true);
+    },
+    openView: () => {
+      if (!selectedService) {
+        window.alert("Select an other service row first.");
+        return;
+      }
+      setIsViewOpen(true);
+    },
+    deleteSelected: () => {
+      if (isReadOnly) {
+        window.alert("This reservation is locked. Other services cannot be deleted.");
+        return;
+      }
+      if (!selectedService) {
+        window.alert("Select an other service row first.");
+        return;
+      }
+      const confirmed = window.confirm("Delete selected other service?");
+      if (!confirmed) return;
+      void deleteMutation.mutateAsync(selectedService.id);
+    },
+  }), [deleteMutation, isReadOnly, selectedService]);
+
+  useEffect(() => {
+    if (!toastMessage) return;
+    const timer = window.setTimeout(() => setToastMessage(""), 2400);
+    return () => window.clearTimeout(timer);
+  }, [toastMessage]);
+
+  return (
+    <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden p-3">
+      {toastMessage ? (
+        <div className="mb-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-700">
+          {toastMessage}
+        </div>
+      ) : null}
+      {isReadOnly ? (
+        <div className="mb-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800">
+          This reservation is locked. Other services cannot be added, edited, or deleted.
+        </div>
+      ) : null}
+
+      {typeof reservationId !== "number" || reservationId <= 0 ? (
+        <p className="text-xs text-slate-500">Save or select a reservation to manage other services.</p>
+      ) : query.isLoading ? (
+        <p className="text-xs text-slate-500">Loading other services...</p>
+      ) : !query.data || query.data.length === 0 ? (
+        <p className="text-xs text-slate-500">No other services added yet.</p>
+      ) : (
+        <div className="min-h-0 flex-1 overflow-auto rounded-lg border border-slate-200 rustar-scroll">
+          <table className="min-w-[640px] text-left text-[11px]">
+            <thead className="sticky top-0 bg-slate-100 text-slate-600">
+              <tr>
+                <th className="border-b border-slate-200 px-2 py-1.5 font-semibold">Service</th>
+                <th className="border-b border-slate-200 px-2 py-1.5 font-semibold">Date</th>
+                <th className="border-b border-slate-200 px-2 py-1.5 font-semibold">Price</th>
+                <th className="border-b border-slate-200 px-2 py-1.5 font-semibold">Cost</th>
+                <th className="border-b border-slate-200 px-2 py-1.5 font-semibold">Paid</th>
+                <th className="border-b border-slate-200 px-2 py-1.5 font-semibold">Note</th>
+              </tr>
+            </thead>
+            <tbody>
+              {query.data.map((service, index) => (
+                <tr
+                  key={service.id}
+                  onClick={() => setSelectedId(service.id)}
+                  onDoubleClick={() => {
+                    setSelectedId(service.id);
+                    if (isReadOnly) { setIsViewOpen(true); return; }
+                    setIsEditOpen(true);
+                  }}
+                  className={`cursor-pointer ${
+                    selectedService?.id === service.id
+                      ? "bg-amber-200/80 hover:bg-amber-200"
+                      : index % 2 === 0
+                        ? "bg-white hover:bg-slate-50"
+                        : "bg-slate-50 hover:bg-slate-100"
+                  }`}
+                >
+                  <td className="border-b border-slate-100 px-2 py-1.5 font-medium text-slate-800">{service.serviceName || "-"}</td>
+                  <td className="border-b border-slate-100 px-2 py-1.5 text-slate-700">{toDateLabel(service.serviceDate)}</td>
+                  <td className="border-b border-slate-100 px-2 py-1.5 text-slate-700">
+                    {service.price ? `${service.price} ${currencyLabelById[service.sellingCurrencyId] ?? ""}`.trim() : "-"}
+                  </td>
+                  <td className="border-b border-slate-100 px-2 py-1.5 text-slate-500 italic">
+                    {service.cost ? `${service.cost} ${currencyLabelById[service.costCurrencyId] ?? ""}`.trim() : "-"}
+                  </td>
+                  <td className={`border-b border-slate-100 px-2 py-1.5 font-medium ${service.isPaid ? "text-emerald-700" : "text-rose-600"}`}>
+                    {service.isPaid ? "Paid" : "Unpaid"}
+                  </td>
+                  <td className="border-b border-slate-100 px-2 py-1.5 text-slate-500 max-w-[160px] truncate">{service.note || "-"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {isAddOpen && !isReadOnly && typeof reservationId === "number" && reservationId > 0 ? (
+        <ModalShell title="Add Other Service" onClose={onCloseAdd}>
+          <OtherServiceForm
+            reservationId={reservationId}
+            currencyOptions={currencyOptions}
+            onCancel={onCloseAdd}
+            onSuccess={() => {
+              onCloseAdd();
+              setToastMessage("Other service added successfully.");
+            }}
+          />
+        </ModalShell>
+      ) : null}
+
+      {isViewOpen && selectedService ? (
+        <ModalShell title="View Other Service" onClose={() => setIsViewOpen(false)}>
+          <OtherViewPanel service={selectedService} currencyLabelById={currencyLabelById} />
+        </ModalShell>
+      ) : null}
+
+      {isEditOpen && !isReadOnly && selectedService ? (
+        <ModalShell title="Edit Other Service" onClose={() => setIsEditOpen(false)}>
+          <OtherServiceForm
+            key={`edit-other-${selectedService.id}`}
+            reservationId={reservationId as number}
+            currencyOptions={currencyOptions}
+            service={selectedService}
+            onCancel={() => setIsEditOpen(false)}
+            onSuccess={() => {
+              setIsEditOpen(false);
+              setToastMessage("Other service updated successfully.");
+            }}
+          />
+        </ModalShell>
+      ) : null}
+    </div>
+  );
+});
 

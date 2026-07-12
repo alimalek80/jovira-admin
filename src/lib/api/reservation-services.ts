@@ -851,3 +851,86 @@ export async function updateFlightTicket(
 export async function deleteFlightTicket(ticketId: number): Promise<void> {
   await axiosInstance.delete(`${resolveFlightTicketsEndpoint()}${ticketId}/`);
 }
+// ─── OtherService (free-form miscellaneous services linked to a reservation) ──
+
+export type OtherService = {
+  id: number;
+  reservation: number;
+  systemDate: string | null;
+  serviceDate: string;
+  serviceName: string;
+  sellingCurrencyId: string;
+  costCurrencyId: string;
+  crossCurrencyRate: string;
+  price: string | null;
+  cost: string | null;
+  isPaid: boolean;
+  note: string;
+};
+
+export type OtherServiceInput = {
+  reservation: number;
+  service_date: string;
+  service_name: string;
+  selling_currency?: number | null;
+  cost_currency?: number | null;
+  cross_currency_rate?: string;
+  price?: string | null;
+  cost?: string | null;
+  is_paid?: boolean;
+  note?: string;
+};
+
+function normalizeOtherService(row: unknown, reservationId?: number): OtherService | null {
+  if (!row || typeof row !== "object") return null;
+  const value = row as Row;
+  const id = getId(value.id);
+  const resolvedReservation = getId(value.reservation) ?? reservationId ?? null;
+  if (!id || !resolvedReservation) return null;
+
+  return {
+    id,
+    reservation: resolvedReservation,
+    systemDate: typeof value.system_date === "string" ? value.system_date : null,
+    serviceDate: typeof value.service_date === "string" ? value.service_date : "",
+    serviceName: String(value.service_name ?? ""),
+    sellingCurrencyId: String(getId(value.selling_currency) ?? ""),
+    costCurrencyId: String(getId(value.cost_currency) ?? ""),
+    crossCurrencyRate: String(value.cross_currency_rate ?? "1.0000000000"),
+    price: value.price != null ? String(value.price) : null,
+    cost: value.cost != null ? String(value.cost) : null,
+    isPaid: toBoolean(value.is_paid),
+    note: String(value.note ?? ""),
+  };
+}
+
+export async function listOtherServices(reservationId: number): Promise<OtherService[]> {
+  return listByReservation(
+    RESERVATIONS_ENDPOINTS.adminOtherServices,
+    reservationId,
+    normalizeOtherService,
+    RESERVATIONS_ENDPOINTS.adminReservations,
+    "other_services"
+  );
+}
+
+export async function createOtherService(payload: OtherServiceInput): Promise<OtherService> {
+  const response = await axiosInstance.post(RESERVATIONS_ENDPOINTS.adminOtherServices, payload);
+  const normalized = normalizeOtherService(response.data, payload.reservation);
+  if (!normalized) throw new Error("Unable to normalize other service response.");
+  return normalized;
+}
+
+export async function updateOtherService(
+  serviceId: number,
+  payload: Partial<OtherServiceInput> & { reservation: number }
+): Promise<OtherService> {
+  const response = await axiosInstance.patch(`${RESERVATIONS_ENDPOINTS.adminOtherServices}${serviceId}/`, payload);
+  const normalized = normalizeOtherService(response.data, payload.reservation);
+  if (!normalized) throw new Error("Unable to normalize other service response.");
+  return normalized;
+}
+
+export async function deleteOtherService(serviceId: number): Promise<void> {
+  await axiosInstance.delete(`${RESERVATIONS_ENDPOINTS.adminOtherServices}${serviceId}/`);
+}

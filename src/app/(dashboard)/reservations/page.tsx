@@ -14,6 +14,7 @@ import {
   HotelBookingManager,
   TransferServiceManager,
   FlightTicketManager,
+  OtherServiceManager,
   type ReservationServiceManagerHandle,
 } from "../../../components/reservations/ReservationServiceManagers";
 import TouristManager from "@/components/reservations/TouristManager";
@@ -1705,6 +1706,7 @@ function ReservationTabsPanel({
   const hotelManagerRef = useRef<ReservationServiceManagerHandle | null>(null);
   const transferManagerRef = useRef<ReservationServiceManagerHandle | null>(null);
   const flightTicketManagerRef = useRef<ReservationServiceManagerHandle | null>(null);
+  const otherServiceManagerRef = useRef<ReservationServiceManagerHandle | null>(null);
   const actionButtons = [
     { label: "Add", primary: true },
     { label: "Edit" },
@@ -1719,8 +1721,8 @@ function ReservationTabsPanel({
   ];
 
   const isTransferTab = activeTab === "Arrival" || activeTab === "Departure" || activeTab === "Transfer";
-  const supportsActiveTabAdd = activeTab === "Hotel" || isTransferTab || activeTab === "Flight Tickets";
-  const supportsSelectedRowActions = activeTab === "Hotel" || isTransferTab || activeTab === "Flight Tickets";
+  const supportsActiveTabAdd = activeTab === "Hotel" || isTransferTab || activeTab === "Flight Tickets" || activeTab === "Other";
+  const supportsSelectedRowActions = activeTab === "Hotel" || isTransferTab || activeTab === "Flight Tickets" || activeTab === "Other";
 
   const runSelectedRowAction = (action: "edit" | "view" | "delete") => {
     const manager =
@@ -1728,9 +1730,11 @@ function ReservationTabsPanel({
         ? hotelManagerRef.current
         : activeTab === "Flight Tickets"
           ? flightTicketManagerRef.current
-          : isTransferTab
-            ? transferManagerRef.current
-            : null;
+          : activeTab === "Other"
+            ? otherServiceManagerRef.current
+            : isTransferTab
+              ? transferManagerRef.current
+              : null;
 
     if (!manager) {
       return;
@@ -1878,6 +1882,16 @@ function ReservationTabsPanel({
         />
       ) : activeTab === "Activity" ? (
         <ActivityTimeline reservationId={reservationId ?? 0} />
+      ) : activeTab === "Other" ? (
+        <OtherServiceManager
+          ref={otherServiceManagerRef}
+          key={`other-${reservationId ?? "none"}`}
+          reservationId={reservationId}
+          currencyOptions={currencyOptions}
+          isAddOpen={isAddModalOpen}
+          onCloseAdd={() => setIsAddModalOpen(false)}
+          isReadOnly={isReadOnly}
+        />
       ) : activeTab === "All Services" ? (
         <div className="min-h-0 flex-1 overflow-auto p-4">
           <div className="rounded-md border border-blue-200 bg-blue-50 p-3">
