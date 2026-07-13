@@ -68,6 +68,9 @@ export type TransferService = {
   toLocationName: string;
   price: string;
   currencyId: string;
+  cost: string | null;
+  costCurrencyId: string | null;
+  crossCurrencyRate: string;
   passengers: number[];
   externalNote: string;
   driverNote: string;
@@ -346,6 +349,9 @@ function normalizeTransferService(row: unknown, reservationId?: number): Transfe
     toLocationName: String(value.to_location_name ?? ""),
     price: String(value.price ?? ""),
     currencyId: String(getId(value.currency) ?? relationLabel(value.currency).id ?? ""),
+    cost: value.cost != null ? String(value.cost) : null,
+    costCurrencyId: value.cost_currency != null ? String(getId(value.cost_currency) ?? value.cost_currency) : null,
+    crossCurrencyRate: String(value.cross_currency_rate ?? "1.0000000000"),
     passengers: normalizeList<unknown>(value.passengers).map((item) => getId(item)).filter((item): item is number => item !== null),
     externalNote: String(value.external_note ?? ""),
     driverNote: String(value.driver_note ?? ""),
@@ -705,6 +711,9 @@ export type FlightTicket = {
   price: string;
   currencyId: string;
   paid: boolean;
+  cost: string | null;
+  costCurrencyId: string | null;
+  crossCurrencyRate: string;
 };
 
 export type FlightTicketInput = {
@@ -782,6 +791,9 @@ function normalizeFlightTicket(row: unknown, reservationId?: number): FlightTick
     price: String(value.price ?? value.agency_price ?? value.public_price ?? value.ticket_price ?? "0.00"),
     currencyId: String(getId(value.currency) ?? relationLabel(value.currency).id ?? ""),
     paid: toBoolean(value.paid ?? value.is_paid),
+    cost: value.cost != null ? String(value.cost) : null,
+    costCurrencyId: value.cost_currency != null ? String(getId(value.cost_currency) ?? value.cost_currency) : null,
+    crossCurrencyRate: String(value.cross_currency_rate ?? "1.0000000000"),
   };
 }
 
