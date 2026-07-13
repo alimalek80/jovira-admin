@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import type { AxiosError } from "axios";
 import {
   createColumnHelper,
@@ -42,8 +43,16 @@ import {
 } from "@/lib/api/reservation-services";
 import { listHotelRooms } from "@/lib/api/hotel-rooms";
 import ActivityTimeline from "@/components/reservations/ActivityTimeline";
+import PingPongButton from "@/components/reservations/PingPongButton";
 import { useCurrentUser } from "@/lib/auth/useCurrentUser";
 
+
+type ReservationFinancialBreakdownRow = {
+  currency: string;
+  total_selling: string | number;
+  total_cost: string | number;
+  margin: string | number;
+};
 
 type ReservationRecord = {
   id: number;
@@ -58,6 +67,7 @@ type ReservationRecord = {
   currency: string;
   currencyId: string;
   total: string;
+  isLockedByFinance: boolean;
 };
 
 type SelectOption = {
@@ -317,6 +327,7 @@ function normalizeReservations(payload: unknown): ReservationRecord[] {
         currency: currency.code,
         currencyId: currency.id,
         total: String(row.total ?? row.amount ?? row.grand_total ?? "-"),
+        isLockedByFinance: Boolean(row.is_locked_by_finance),
       };
     })
     .filter((row) => row.id > 0);
@@ -1404,6 +1415,11 @@ function ReservationRecordsTable({
   ownerLabelById,
   tourPackageLabelById,
   currencyLabelById,
+  onPingPongSuccess,
+  searchValue,
+  onSearchChange,
+  isFilteredFromFinanceQueue,
+  onClearFinanceQueueFilter,
 }: {
   rows: ReservationRecord[];
   loading: boolean;
@@ -1422,7 +1438,34 @@ function ReservationRecordsTable({
   ownerLabelById: Record<string, string>;
   tourPackageLabelById: Record<string, string>;
   currencyLabelById: Record<string, string>;
+  onPingPongSuccess: () => void;
+  searchValue: string;
+  onSearchChange: (value: string) => void;
+  isFilteredFromFinanceQueue: boolean;
+  onClearFinanceQueueFilter: () => void;
 }) {
+  const selectedRecord = rows.find((row) => row.id === selectedReservationId) ?? null;
+
+  const financialSummaryQuery = useQuery({
+    queryKey: ["reservation-financial-summary", selectedReservationId],
+    queryFn: async () => {
+      const response = await axiosInstance.get<{ breakdown: ReservationFinancialBreakdownRow[] }>(
+        RESERVATIONS_ENDPOINTS.adminReservationFinancialSummary(selectedReservationId as number)
+      );
+      return response.data;
+    },
+    enabled: selectedReservationId !== null,
+  });
+  const financialBreakdown = selectedReservationId !== null ? financialSummaryQuery.data?.breakdown ?? [] : [];
+
+  const profitClassName = (margin: string | number) => {
+    const value = Number(margin);
+    if (!Number.isFinite(value) || value === 0) {
+      return "text-slate-600";
+    }
+    return value > 0 ? "text-emerald-700" : "text-red-600";
+  };
+
   const statusClassName = (status: string) => {
     const normalized = status.trim().toUpperCase().replaceAll(" ", "_");
 
@@ -1519,11 +1562,11 @@ function ReservationRecordsTable({
   return (
     <section className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
       <div className="shrink-0 border-b border-slate-200 px-4 py-2.5">
-        <div className="flex flex-wrap items-center gap-1.5">
+        <div className="flex flex-nowrap items-center gap-2 overflow-x-auto pb-0.5 scrollbar-none">
           <button
             type="button"
             aria-label="Table settings"
-            className="inline-flex h-8 w-8 items-center justify-center rounded border border-slate-300 bg-white text-slate-600 hover:bg-slate-100"
+            className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded border border-slate-300 bg-white text-slate-600 hover:bg-slate-100"
           >
             <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <line x1="4" y1="21" x2="4" y2="14" />
@@ -1541,17 +1584,26 @@ function ReservationRecordsTable({
           <button
             type="button"
             aria-label="Filter"
-            className="inline-flex h-8 w-8 items-center justify-center rounded border border-slate-300 bg-white text-slate-600 hover:bg-slate-100"
+            className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded border border-slate-300 bg-white text-slate-600 hover:bg-slate-100"
           >
             <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <polygon points="22 3 2 3 10 12.5 10 19 14 21 14 12.5 22 3" />
             </svg>
           </button>
 
+          <input
+            type="text"
+            value={searchValue}
+            onChange={(event) => onSearchChange(event.target.value)}
+            placeholder="Search reservation #"
+            aria-label="Search reservation number"
+            className="h-8 min-w-0 min-w-[140px] rounded border border-slate-300 bg-white px-2.5 text-[11px] text-slate-700 placeholder:text-slate-400 focus:border-[#0f2347] focus:outline-none"
+          />
+
           <button
             type="button"
             aria-label="Refresh"
-            className="inline-flex h-8 w-8 items-center justify-center rounded border border-slate-300 bg-white text-slate-600 hover:bg-slate-100"
+            className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded border border-slate-300 bg-white text-slate-600 hover:bg-slate-100"
           >
             <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <polyline points="23 4 23 10 17 10" />
@@ -1564,7 +1616,7 @@ function ReservationRecordsTable({
           <button
             type="button"
             onClick={onAdd}
-            className="inline-flex h-8 items-center gap-1.5 rounded border border-[#0f2347] bg-[#0f2347] px-3 text-[11px] font-semibold text-white hover:bg-[#0b1b38]"
+            className="inline-flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded border border-[#0f2347] bg-[#0f2347] px-3 text-[11px] font-semibold text-white hover:bg-[#0b1b38]"
           >
             <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <line x1="12" y1="5" x2="12" y2="19" />
@@ -1575,7 +1627,7 @@ function ReservationRecordsTable({
 
           <Link
             href="/work-desk"
-            className="inline-flex h-8 items-center gap-1.5 rounded border border-slate-300 bg-white px-3 text-[11px] font-semibold text-slate-700 hover:bg-slate-100"
+            className="inline-flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded border border-slate-300 bg-white px-3 text-[11px] font-semibold text-slate-700 hover:bg-slate-100"
           >
             <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <path d="M9 11l3 3L22 4" />
@@ -1588,7 +1640,7 @@ function ReservationRecordsTable({
             type="button"
             onClick={onTake}
             disabled={!canTake || isTaking}
-            className="inline-flex h-8 items-center gap-1.5 rounded border border-slate-300 bg-white px-3 text-[11px] font-semibold text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+            className="inline-flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded border border-slate-300 bg-white px-3 text-[11px] font-semibold text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
           >
             <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <path d="M20 6L9 17l-5-5" />
@@ -1600,7 +1652,7 @@ function ReservationRecordsTable({
             type="button"
             onClick={onConfirm}
             disabled={!canConfirm || isConfirming}
-            className="inline-flex h-8 items-center gap-1.5 rounded border border-[#0f2347] bg-[#0f2347] px-3 text-[11px] font-semibold text-white hover:bg-[#0b1b38] disabled:cursor-not-allowed disabled:opacity-60"
+            className="inline-flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded border border-[#0f2347] bg-[#0f2347] px-3 text-[11px] font-semibold text-white hover:bg-[#0b1b38] disabled:cursor-not-allowed disabled:opacity-60"
           >
             <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <path d="M9 11l3 3L22 4" />
@@ -1609,19 +1661,44 @@ function ReservationRecordsTable({
             {isConfirming ? "Confirming..." : "Confirm"}
           </button>
 
-          <h3 className="ml-1 text-xs font-semibold uppercase tracking-wide text-slate-700">Reservations</h3>
-          <div className="ml-auto flex items-center gap-2">
-            <span className="text-xs text-slate-500">{rows.length} records</span>
+          {selectedReservationId !== null ? (
+            <div className="shrink-0">
+              <PingPongButton
+                reservationId={selectedReservationId}
+                isLockedByFinance={selectedRecord?.isLockedByFinance ?? false}
+                onSuccess={onPingPongSuccess}
+              />
+            </div>
+          ) : null}
+
+          <h3 className="ml-1 shrink-0 whitespace-nowrap text-xs font-semibold uppercase tracking-wide text-slate-700">Reservations</h3>
+          <div className="ml-auto flex shrink-0 items-center gap-2">
+            <span className="whitespace-nowrap text-xs text-slate-500">{rows.length} records</span>
             <button
               type="button"
               onClick={onFinalize}
               disabled={!canFinalize || isFinalizing}
-              className="inline-flex h-8 items-center rounded border border-[#0f2347] bg-[#0f2347] px-3 text-[11px] font-semibold text-white hover:bg-[#0b1b38] disabled:cursor-not-allowed disabled:opacity-60"
+              className="inline-flex h-8 shrink-0 items-center whitespace-nowrap rounded border border-[#0f2347] bg-[#0f2347] px-3 text-[11px] font-semibold text-white hover:bg-[#0b1b38] disabled:cursor-not-allowed disabled:opacity-60"
             >
               {isFinalizing ? "Saving..." : "Save"}
             </button>
           </div>
         </div>
+
+        {isFilteredFromFinanceQueue ? (
+          <div className="mt-2 flex items-center gap-2 rounded border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-[11px] font-medium text-amber-800">
+            <span>
+              Filtered from Finance Queue — {searchValue} ·{" "}
+              <button
+                type="button"
+                onClick={onClearFinanceQueueFilter}
+                className="font-semibold underline underline-offset-2 hover:text-amber-900"
+              >
+                Clear filter
+              </button>
+            </span>
+          </div>
+        ) : null}
       </div>
 
       <div className="min-h-0 flex-1 overflow-auto">
@@ -1678,6 +1755,20 @@ function ReservationRecordsTable({
             )}
           </tbody>
         </table>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-4 border-t border-slate-200 bg-slate-100 px-3 py-1.5 text-[11px] font-medium text-slate-600">
+        {/* `rows` is the already-filtered/displayed list passed in via props (see filteredReservationRows
+            in ReservationsPageContent) — not raw query data or a backend pagination count. */}
+        <span>Records: {rows.length}</span>
+        <span>Selected: {selectedReservationId ? 1 : 0}</span>
+        {selectedReservationId !== null &&
+          financialBreakdown.map((row, index) => (
+            <span key={`${row.currency}-${index}`}>
+              Currency: {row.currency} | Net: {row.total_cost} | Sale: {row.total_selling} | Profit:{" "}
+              <span className={profitClassName(row.margin)}>{row.margin}</span>
+            </span>
+          ))}
       </div>
     </section>
   );
@@ -1916,12 +2007,38 @@ function ReservationTabsPanel({
   );
 }
 
-export default function ReservationsPage() {
+function ReservationsPageContent() {
   const queryClient = useQueryClient();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const idParam = searchParams.get("id");
+  const searchParamValue = searchParams.get("search");
+  const appliedUrlReservationIdRef = useRef<string | null>(null);
+  const [reservationNumberSearch, setReservationNumberSearch] = useState("");
+  const [isSearchFromFinanceQueue, setIsSearchFromFinanceQueue] = useState(false);
+  const appliedUrlSearchRef = useRef<string | null>(null);
   const { user: currentUser } = useCurrentUser();
   const isAdmin = Boolean(
     currentUser?.is_superuser || currentUser?.is_staff || currentUser?.role === "ADMIN"
   );
+
+  // Pre-populate the reservation number search from ?search=<value> (e.g. from the Finance Queue "View" link).
+  useEffect(() => {
+    if (!searchParamValue || appliedUrlSearchRef.current === searchParamValue) {
+      return;
+    }
+    appliedUrlSearchRef.current = searchParamValue;
+    setReservationNumberSearch(searchParamValue);
+    setIsSearchFromFinanceQueue(true);
+  }, [searchParamValue]);
+
+  const handleClearFinanceQueueFilter = () => {
+    setReservationNumberSearch("");
+    setIsSearchFromFinanceQueue(false);
+    appliedUrlSearchRef.current = null;
+    router.replace("/reservations", { scroll: false });
+  };
+
   const [currencyOptions, setCurrencyOptions] = useState<SelectOption[]>([]);
   // Derived map: DB currency ID → ISO code (e.g. "3" → "TRY"). Built from currencyOptions
   // so it always matches the same parse logic and is never stale.
@@ -2306,6 +2423,32 @@ export default function ReservationsPage() {
     });
   };
 
+  // Pre-select a reservation when navigating in with ?id=<reservationId> (e.g. from the Finance Queue "View" link).
+  useEffect(() => {
+    if (!idParam || appliedUrlReservationIdRef.current === idParam) {
+      return;
+    }
+
+    const rows = reservationsQuery.data ?? [];
+    if (rows.length === 0) {
+      return;
+    }
+
+    const targetId = Number(idParam);
+    if (!Number.isFinite(targetId)) {
+      appliedUrlReservationIdRef.current = idParam;
+      return;
+    }
+
+    const targetRow = rows.find((row) => row.id === targetId);
+    if (!targetRow) {
+      return;
+    }
+
+    appliedUrlReservationIdRef.current = idParam;
+    handleSelectReservation(targetRow);
+  }, [idParam, reservationsQuery.data]);
+
   const handleAddReservation = () => {
     const rows = reservationsQuery.data ?? [];
     setIsCreatingReservation(true);
@@ -2356,6 +2499,15 @@ export default function ReservationsPage() {
   const selectedAgencyDetails =
     form.ownerType === "AGENCY" && form.agencyId ? agencyDetailsById[form.agencyId] ?? null : null;
   const currentReservationIsReadOnly = form.status.trim().toUpperCase() === "CONFIRMED" && !isAdmin;
+
+  const filteredReservationRows = useMemo(() => {
+    const rows = reservationsQuery.data ?? [];
+    const query = reservationNumberSearch.trim().toLowerCase();
+    if (!query) {
+      return rows;
+    }
+    return rows.filter((row) => row.reservationNo.toLowerCase().includes(query));
+  }, [reservationsQuery.data, reservationNumberSearch]);
 
   return (
     <section className="space-y-3">
@@ -2471,9 +2623,19 @@ export default function ReservationsPage() {
             <div className="flex h-full min-h-0 flex-col gap-3 overflow-hidden">
               <div className="min-h-0 flex-[5] pb-1">
                 <ReservationRecordsTable
-                  rows={reservationsQuery.data ?? []}
+                  rows={filteredReservationRows}
                   loading={reservationsQuery.isLoading}
                   selectedReservationId={selectedReservationId}
+                  searchValue={reservationNumberSearch}
+                  onSearchChange={(value) => {
+                    setReservationNumberSearch(value);
+                    if (isSearchFromFinanceQueue) {
+                      setIsSearchFromFinanceQueue(false);
+                      appliedUrlSearchRef.current = null;
+                    }
+                  }}
+                  isFilteredFromFinanceQueue={isSearchFromFinanceQueue}
+                  onClearFinanceQueueFilter={handleClearFinanceQueueFilter}
                   onSelect={handleSelectReservation}
                   onAdd={handleAddReservation}
                   onFinalize={() => {
@@ -2498,6 +2660,7 @@ export default function ReservationsPage() {
                   ownerLabelById={ownerLabelById}
                   tourPackageLabelById={tourPackageLabelById}
                   currencyLabelById={currencyLabelById}
+                  onPingPongSuccess={() => setToastMessage("Finance status updated.")}
                 />
               </div>
               <div className="min-h-0 flex-[5] pt-1">
@@ -2517,5 +2680,13 @@ export default function ReservationsPage() {
         </div>
       </div>
     </section>
+  );
+}
+
+export default function ReservationsPage() {
+  return (
+    <Suspense fallback={<p className="p-6 text-xs text-slate-500">Loading...</p>}>
+      <ReservationsPageContent />
+    </Suspense>
   );
 }

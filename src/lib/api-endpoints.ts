@@ -67,6 +67,11 @@ export const RESERVATIONS_ENDPOINTS = {
   adminExcursionServices: `${API_V1}/reservations/admin/excursion-services/`,
   adminOtherServices: `${API_V1}/reservations/admin/other-services/`,
   adminReservationActivityLogs: `${API_V1}/reservations/admin/reservation-activity-logs/`,
+  adminReservationFinancialSummary: (id: number) =>
+    `${API_V1}/reservations/admin/reservations/${id}/financial-summary/`,
+  adminReservationPingPong: (id: number) =>
+    `${API_V1}/reservations/admin/reservations/${id}/ping-pong/`,
+  adminFinanceQueue: `${API_V1}/reservations/admin/reservations/finance-queue/`,
 };
 
 export const FINANCE_ENDPOINTS = {
