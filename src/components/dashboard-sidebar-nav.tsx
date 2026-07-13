@@ -16,6 +16,7 @@ import {
   Wrench,
   Truck,
   Globe,
+  Landmark,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { canAccessAdminRoute } from "@/lib/auth/roles";
@@ -54,6 +55,11 @@ const navigationGroups: NavigationGroup[] = [
         href: "/agencies",
         label: "Agencies",
         icon: Building2,
+      },
+      {
+        href: "/finance-queue",
+        label: "Finance Queue",
+        icon: Landmark,
       },
     ],
   },

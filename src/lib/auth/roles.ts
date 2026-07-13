@@ -64,6 +64,10 @@ const ADMIN_ROUTE_ACCESS_RULES: readonly RouteAccessRule[] = [
     allowedRoles: ["INVENTORY", "FINANCE"],
   },
   {
+    path: "/finance-queue",
+    allowedRoles: ["FINANCE"],
+  },
+  {
     path: "/web-sections",
     allowedRoles: ["ADMIN"],
   },
