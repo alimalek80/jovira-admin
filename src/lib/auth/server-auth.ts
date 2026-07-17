@@ -63,7 +63,7 @@ export async function fetchCurrentUser(
     return null;
   }
 
-  const url = `${ACCOUNTS_ENDPOINTS.clientUsers}${encodeURIComponent(String(userId))}/`;
+  const url = `${ACCOUNTS_ENDPOINTS.adminUsers}${encodeURIComponent(String(userId))}/`;
   console.log("[fetchCurrentUser] GET", url);
 
   const response = await fetch(url, {
