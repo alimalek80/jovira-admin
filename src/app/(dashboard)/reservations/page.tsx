@@ -44,6 +44,7 @@ import {
 import { listHotelRooms } from "@/lib/api/hotel-rooms";
 import ActivityTimeline from "@/components/reservations/ActivityTimeline";
 import PingPongButton from "@/components/reservations/PingPongButton";
+import ReservationEmailModal from "@/components/reservation-email-modal";
 import { useCurrentUser } from "@/lib/auth/useCurrentUser";
 
 
@@ -1412,6 +1413,8 @@ function ReservationRecordsTable({
   onConfirm,
   canConfirm,
   isConfirming,
+  onSendEmail,
+  canSendEmail,
   ownerLabelById,
   tourPackageLabelById,
   currencyLabelById,
@@ -1435,6 +1438,8 @@ function ReservationRecordsTable({
   onConfirm: () => void;
   canConfirm: boolean;
   isConfirming: boolean;
+  onSendEmail: () => void;
+  canSendEmail: boolean;
   ownerLabelById: Record<string, string>;
   tourPackageLabelById: Record<string, string>;
   currencyLabelById: Record<string, string>;
@@ -1659,6 +1664,19 @@ function ReservationRecordsTable({
               <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
             </svg>
             {isConfirming ? "Confirming..." : "Confirm"}
+          </button>
+
+          <button
+            type="button"
+            onClick={onSendEmail}
+            disabled={!canSendEmail}
+            className="inline-flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded border border-slate-300 bg-white px-3 text-[11px] font-semibold text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <line x1="22" y1="2" x2="11" y2="13" />
+              <polygon points="22 2 15 22 11 13 2 9 22 2" />
+            </svg>
+            Send Email
           </button>
 
           {selectedReservationId !== null ? (
@@ -2123,7 +2141,8 @@ function ReservationsPageContent() {
   const [selectedHotelRoomTouristIds, setSelectedHotelRoomTouristIds] = useState<number[] | null>(null);
 
   const [isFormPanelCollapsed, setIsFormPanelCollapsed] = useState(false);
-  const [isTouristsPanelCollapsed, setIsTouristsPanelCollapsed] = useState(false);
+  const [isTouristsPanelCollapsed,setIsTouristsPanelCollapsed] = useState(false);
+  const [isEmailModalOpen, setIsEmailModalOpen] = useState(false);
 
   // Hydrate collapse flags from localStorage after mount to avoid SSR hydration mismatches.
   useEffect(() => {
@@ -2648,6 +2667,21 @@ function ReservationsPageContent() {
           </div>
 
           <div className="min-h-0 flex-1">
+            {isEmailModalOpen && selectedReservationId !== null && (
+              <ReservationEmailModal
+                reservationNo={
+                  filteredReservationRows.find((r) => r.id === selectedReservationId)
+                    ?.reservationNo ?? `#${selectedReservationId}`
+                }
+                defaultSubject={`Reservation request ${
+                  filteredReservationRows.find((r) => r.id === selectedReservationId)
+                    ?.reservationNo ?? ""
+                }`}
+                defaultBody={`Dear Sir/Madam,\n\nWould you please reserve:\n\n\n\nKindly acknowledge.\n\nBest regards,`}
+                onClose={() => setIsEmailModalOpen(false)}
+              />
+            )}
+
             <ReservationRecordsTable
               rows={filteredReservationRows}
               loading={reservationsQuery.isLoading}
@@ -2687,6 +2721,8 @@ function ReservationsPageContent() {
               tourPackageLabelById={tourPackageLabelById}
               currencyLabelById={currencyLabelById}
               onPingPongSuccess={() => setToastMessage("Finance status updated.")}
+              onSendEmail={() => setIsEmailModalOpen(true)}
+              canSendEmail={Boolean(form.id)}
             />
           </div>
         </div>

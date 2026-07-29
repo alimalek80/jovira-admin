@@ -55,3 +55,20 @@ export async function sendTestEmail(id: number, recipient: string): Promise<{ de
   );
   return res.data;
 }
+
+export interface ComposeEmailPayload {
+  to: string;
+  cc?: string;
+  subject: string;
+  body: string;
+}
+
+export async function sendReservationEmail(
+  payload: ComposeEmailPayload
+): Promise<{ detail: string }> {
+  const res = await axiosInstance.post<{ detail: string }>(
+    SETTINGS_ENDPOINTS.reservationEmailSend,
+    payload
+  );
+  return res.data;
+}
