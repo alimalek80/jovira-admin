@@ -2669,15 +2669,15 @@ function ReservationsPageContent() {
           <div className="min-h-0 flex-1">
             {isEmailModalOpen && selectedReservationId !== null && (
               <ReservationEmailModal
+                reservationId={selectedReservationId}
                 reservationNo={
                   filteredReservationRows.find((r) => r.id === selectedReservationId)
                     ?.reservationNo ?? `#${selectedReservationId}`
                 }
-                defaultSubject={`Reservation request ${
+                currency={
                   filteredReservationRows.find((r) => r.id === selectedReservationId)
-                    ?.reservationNo ?? ""
-                }`}
-                defaultBody={`Dear Sir/Madam,\n\nWould you please reserve:\n\n\n\nKindly acknowledge.\n\nBest regards,`}
+                    ?.currency ?? ""
+                }
                 onClose={() => setIsEmailModalOpen(false)}
               />
             )}
