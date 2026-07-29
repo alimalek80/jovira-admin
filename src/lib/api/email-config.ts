@@ -72,3 +72,27 @@ export async function sendReservationEmail(
   );
   return res.data;
 }
+
+export interface ReservationEmailRecord {
+  id: number;
+  reservation: number;
+  sent_by: number | null;
+  sent_by_name: string | null;
+  direction: string;
+  to_address: string;
+  cc_address: string;
+  subject: string;
+  body: string;
+  sent_at: string;
+  is_successful: boolean;
+  error_message: string;
+}
+
+export async function fetchReservationEmailHistory(
+  reservationId: number
+): Promise<ReservationEmailRecord[]> {
+  const res = await axiosInstance.get<ReservationEmailRecord[]>(
+    SETTINGS_ENDPOINTS.reservationEmailHistory(reservationId)
+  );
+  return res.data;
+}

@@ -45,6 +45,7 @@ import { listHotelRooms } from "@/lib/api/hotel-rooms";
 import ActivityTimeline from "@/components/reservations/ActivityTimeline";
 import PingPongButton from "@/components/reservations/PingPongButton";
 import ReservationEmailModal from "@/components/reservation-email-modal";
+import { fetchReservationEmailHistory } from "@/lib/api/email-config";
 import { useCurrentUser } from "@/lib/auth/useCurrentUser";
 
 
@@ -132,6 +133,7 @@ const TAB_LABELS = [
   "Excursion",
   "All Services",
   "Activity",
+  "Emails",
 ] as const;
 
 type TabLabel = (typeof TAB_LABELS)[number];
@@ -1992,6 +1994,8 @@ function ReservationTabsPanel({
         />
       ) : activeTab === "Activity" ? (
         <ActivityTimeline reservationId={reservationId ?? 0} />
+      ) : activeTab === "Emails" ? (
+        <EmailHistoryPanel reservationId={reservationId} />
       ) : activeTab === "Other" ? (
         <OtherServiceManager
           ref={otherServiceManagerRef}
@@ -2022,6 +2026,124 @@ function ReservationTabsPanel({
         </div>
       )}
     </section>
+  );
+}
+
+function EmailHistoryPanel({ reservationId }: { reservationId: number | null }) {
+  const { data: emails = [], isLoading } = useQuery({
+    queryKey: ["reservation-emails", reservationId],
+    queryFn: () =>
+      reservationId ? fetchReservationEmailHistory(reservationId) : Promise.resolve([]),
+    enabled: reservationId !== null,
+  });
+
+  const [expandedId, setExpandedId] = useState<number | null>(null);
+
+  if (!reservationId) {
+    return (
+      <div className="flex flex-1 items-center justify-center p-6 text-xs text-slate-400">
+        Select a reservation to view email history.
+      </div>
+    );
+  }
+
+  if (isLoading) {
+    return (
+      <div className="flex flex-1 items-center justify-center p-6 text-xs text-slate-400">
+        Loading email history...
+      </div>
+    );
+  }
+
+  if (emails.length === 0) {
+    return (
+      <div className="flex flex-1 items-center justify-center p-6 text-xs text-slate-400">
+        No emails sent for this reservation yet.
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-0 flex-1 overflow-auto p-3 space-y-2">
+      {emails.map((email) => (
+        <div
+          key={email.id}
+          className="rounded-lg border border-slate-200 bg-white text-xs"
+        >
+          {/* Header row */}
+          <div
+            className="flex items-center justify-between gap-3 px-3 py-2 cursor-pointer hover:bg-slate-50"
+            onClick={() => setExpandedId(expandedId === email.id ? null : email.id)}
+          >
+            <div className="flex items-center gap-2 min-w-0">
+              <span
+                className={`shrink-0 inline-flex h-4 w-4 items-center justify-center rounded-full text-[9px] font-bold ${
+                  email.is_successful
+                    ? "bg-emerald-100 text-emerald-700"
+                    : "bg-red-100 text-red-600"
+                }`}
+              >
+                {email.is_successful ? "✓" : "✗"}
+              </span>
+              <span className="font-medium text-slate-800 truncate">{email.subject}</span>
+            </div>
+            <div className="flex items-center gap-3 shrink-0 text-slate-400">
+              <span>{email.to_address}</span>
+              <span>
+                {new Date(email.sent_at).toLocaleDateString("en-GB", {
+                  day: "2-digit",
+                  month: "short",
+                  year: "numeric",
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })}
+              </span>
+              <svg
+                viewBox="0 0 24 24"
+                className={`h-3 w-3 transition-transform ${expandedId === email.id ? "rotate-180" : ""}`}
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <polyline points="6 9 12 15 18 9" />
+              </svg>
+            </div>
+          </div>
+
+          {/* Expanded body */}
+          {expandedId === email.id && (
+            <div className="border-t border-slate-100 px-3 py-3 space-y-2">
+              <div className="flex gap-2 text-slate-500">
+                <span className="w-12 shrink-0 font-medium">To:</span>
+                <span>{email.to_address}</span>
+              </div>
+              {email.cc_address && (
+                <div className="flex gap-2 text-slate-500">
+                  <span className="w-12 shrink-0 font-medium">CC:</span>
+                  <span>{email.cc_address}</span>
+                </div>
+              )}
+              {email.sent_by_name && (
+                <div className="flex gap-2 text-slate-500">
+                  <span className="w-12 shrink-0 font-medium">Sent by:</span>
+                  <span>{email.sent_by_name}</span>
+                </div>
+              )}
+              {!email.is_successful && email.error_message && (
+                <div className="rounded border border-red-200 bg-red-50 px-2 py-1.5 text-red-600">
+                  {email.error_message}
+                </div>
+              )}
+              <pre className="mt-2 whitespace-pre-wrap rounded bg-slate-50 border border-slate-100 p-3 font-mono text-[11px] leading-relaxed text-slate-700">
+                {email.body}
+              </pre>
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
   );
 }
 

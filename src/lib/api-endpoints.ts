@@ -95,4 +95,6 @@ export const SETTINGS_ENDPOINTS = {
   emailConfigDetail: (id: number) => `${API_V1}/settings/email-config/${id}/`,
   emailConfigTest: (id: number) => `${API_V1}/settings/email-config/${id}/test/`,
   reservationEmailSend: `${API_V1}/settings/reservation-email/send/`,
+  reservationEmailHistory: (reservationId: number) =>
+    `${API_V1}/settings/reservation-email-history/?reservation=${reservationId}`,
 };
