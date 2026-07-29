@@ -2007,6 +2007,56 @@ function ReservationTabsPanel({
   );
 }
 
+function CollapseStrip({ label, onClick }: { label: string; onClick: () => void }) {
+  return (
+    <div className="flex h-full w-10 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white">
+      <button
+        type="button"
+        onClick={onClick}
+        aria-label={label}
+        className="flex h-8 w-8 items-center justify-center rounded-md text-slate-500 transition hover:bg-slate-100"
+      >
+        <svg
+          viewBox="0 0 24 24"
+          className="h-4 w-4 transition-transform duration-300 ease-in-out"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden="true"
+        >
+          <polyline points="9 18 15 12 9 6" />
+        </svg>
+      </button>
+    </div>
+  );
+}
+
+function PanelCollapseToggle({ label, onClick }: { label: string; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={label}
+      className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 transition hover:bg-slate-100"
+    >
+      <svg
+        viewBox="0 0 24 24"
+        className="h-4 w-4 rotate-180 transition-transform duration-300 ease-in-out"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden="true"
+      >
+        <polyline points="9 18 15 12 9 6" />
+      </svg>
+    </button>
+  );
+}
+
 function ReservationsPageContent() {
   const queryClient = useQueryClient();
   const router = useRouter();
@@ -2071,6 +2121,44 @@ function ReservationsPageContent() {
   // Tourist IDs assigned to the currently-selected hotel booking row.
   // null = no room selected → TouristManager shows all reservation tourists.
   const [selectedHotelRoomTouristIds, setSelectedHotelRoomTouristIds] = useState<number[] | null>(null);
+
+  const [isFormPanelCollapsed, setIsFormPanelCollapsed] = useState(false);
+  const [isTouristsPanelCollapsed, setIsTouristsPanelCollapsed] = useState(false);
+
+  // Hydrate collapse flags from localStorage after mount to avoid SSR hydration mismatches.
+  useEffect(() => {
+    const storedFormCollapsed = window.localStorage.getItem("jovira:reservations:formPanelCollapsed");
+    const storedTouristsCollapsed = window.localStorage.getItem("jovira:reservations:touristsPanelCollapsed");
+
+    const timer = window.setTimeout(() => {
+      if (storedFormCollapsed !== null) {
+        setIsFormPanelCollapsed(storedFormCollapsed === "true");
+      }
+      if (storedTouristsCollapsed !== null) {
+        setIsTouristsPanelCollapsed(storedTouristsCollapsed === "true");
+      }
+    }, 0);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, []);
+
+  const toggleFormPanel = () => {
+    setIsFormPanelCollapsed((previous) => {
+      const next = !previous;
+      window.localStorage.setItem("jovira:reservations:formPanelCollapsed", String(next));
+      return next;
+    });
+  };
+
+  const toggleTouristsPanel = () => {
+    setIsTouristsPanelCollapsed((previous) => {
+      const next = !previous;
+      window.localStorage.setItem("jovira:reservations:touristsPanelCollapsed", String(next));
+      return next;
+    });
+  };
 
   useEffect(() => {
     const loadStatusOptions = async () => {
@@ -2511,13 +2599,6 @@ function ReservationsPageContent() {
 
   return (
     <section className="space-y-3">
-      <div className="flex items-end justify-between gap-3">
-        <div>
-          <h2 className="text-2xl font-semibold tracking-tight text-slate-900">Reservations</h2>
-          <p className="mt-0.5 text-sm text-slate-500">High-density reservation management workspace.</p>
-        </div>
-      </div>
-
       {toastMessage ? (
         <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-700">
           {toastMessage}
@@ -2530,152 +2611,178 @@ function ReservationsPageContent() {
         </div>
       ) : null}
 
-      <div>
-        <div className="grid h-[calc(100vh-9.5rem)] min-h-[580px] grid-cols-1 gap-3 lg:grid-cols-12">
-          <div className="min-h-0 lg:col-span-5">
-            <div className="flex h-full min-h-0 flex-col gap-3 overflow-hidden">
-              <div className="min-h-0 flex-[6] overflow-y-auto pr-1">
-                <ReservationFormPanel
-                  form={form}
-                  statusOptions={statusOptions}
-                  statusesLoading={statusesLoading}
-                  currencyOptions={currencyOptions}
-                  agencyOptions={agencyOptions}
-                  customerOptions={customerOptions}
-                  selectedAgencyDetails={selectedAgencyDetails}
-                  tourPackageOptions={tourPackageOptions}
-                  currenciesLoading={currenciesLoading}
-                  relatedLoading={relatedLoading}
-                  onChange={updateField}
-                  onSave={() => void saveReservationMutation.mutateAsync(form)}
-                  isSaving={saveReservationMutation.isPending}
-                  isReadOnly={currentReservationIsReadOnly}
-                />
+      <div className="flex min-h-0 h-[calc(100vh-9.5rem)] min-h-[580px] flex-col gap-3">
+        {/* top-row: Zone A (Reservation Form, collapsible) + Zone C (Reservations grid, never collapses) */}
+        <div className="flex min-h-0 flex-1 gap-3">
+          <div
+            className={`min-h-0 shrink-0 transition-all duration-300 ease-in-out ${isFormPanelCollapsed ? "w-10" : "w-full lg:w-[35%]"
+              }`}
+          >
+            {isFormPanelCollapsed ? (
+              <CollapseStrip label="Expand Reservation Form" onClick={toggleFormPanel} />
+            ) : (
+              <div className="flex h-full min-h-0 flex-col gap-2">
+                <div className="flex shrink-0 justify-end">
+                  <PanelCollapseToggle label="Collapse Reservation Form" onClick={toggleFormPanel} />
+                </div>
+                <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+                  <ReservationFormPanel
+                    form={form}
+                    statusOptions={statusOptions}
+                    statusesLoading={statusesLoading}
+                    currencyOptions={currencyOptions}
+                    agencyOptions={agencyOptions}
+                    customerOptions={customerOptions}
+                    selectedAgencyDetails={selectedAgencyDetails}
+                    tourPackageOptions={tourPackageOptions}
+                    currenciesLoading={currenciesLoading}
+                    relatedLoading={relatedLoading}
+                    onChange={updateField}
+                    onSave={() => void saveReservationMutation.mutateAsync(form)}
+                    isSaving={saveReservationMutation.isPending}
+                    isReadOnly={currentReservationIsReadOnly}
+                  />
+                </div>
               </div>
-              <div className="min-h-0 flex-[4] overflow-y-auto pr-1">
-                <TouristManager
-                  key={`tourists-${activeReservationId ?? "none"}`}
-                  reservationId={activeReservationId}
-                  isReadOnly={currentReservationIsReadOnly}
-                  filterTouristIds={selectedHotelRoomTouristIds}
-                  onTouristAdded={async (tourist) => {
-                    if (currentReservationIsReadOnly || !activeReservationId || !form.tourPackageId) return;
-                    const parsedPkgId = Number.parseInt(form.tourPackageId, 10);
-                    if (!Number.isFinite(parsedPkgId)) return;
-                    try {
-                      const tourPackage = await getAdminTourPackage(parsedPkgId);
-                      const [existing, flightDetailsAll] = await Promise.all([
-                        listFlightTickets(activeReservationId),
-                        loadFlightDetails(tourPackage.flights),
-                      ]);
-                      const selectedFlights = pickArrivalDepartureFlights(flightDetailsAll);
-                      const existingKeys = new Set(existing.map((t) => `${t.flightId}-${t.touristId}`));
-                      for (const [flightIndex, flight] of selectedFlights.entries()) {
-                        const legCode: "ARR" | "DEP" = selectedFlights.length > 1 && flightIndex === selectedFlights.length - 1 ? "DEP" : "ARR";
-                        const key = `${flight.id}-${tourist.id}`;
-                        if (!existingKeys.has(key)) {
-                          const convertedFlight = await convertToReservationCurrency({
-                            amount: resolveFlightPriceForOwner(flight, form.ownerType),
-                            sourceCurrencyId: flight.currency,
-                            sourceCurrencyCode: flight.currencyCode,
-                            reservationCurrencyId: form.currencyId,
-                            currencyCodeById,
-                          });
-
-                          await createFlightTicket({
-                            reservation: activeReservationId,
-                            flight: flight.id,
-                            tourist: tourist.id,
-                            departure_date: flight.departureDate || null,
-                            arrival_date: flight.arrivalDate || null,
-                            departing_date: flight.departureDate || null,
-                            arriving_date: flight.arrivalDate || null,
-                            ticket_number: buildAutoTicketNumber({
-                              reservationId: activeReservationId,
-                              touristId: tourist.id,
-                              flightNumber: flight.flightNumber,
-                              legCode,
-                            }),
-                            pnr: buildAutoTicketNumber({
-                              reservationId: activeReservationId,
-                              touristId: tourist.id,
-                              flightNumber: flight.flightNumber,
-                              legCode,
-                            }),
-                            price: convertedFlight.amount,
-                            currency: convertedFlight.currencyId,
-                            paid: false,
-                            is_paid: false,
-                          });
-                        }
-                      }
-                      await queryClient.invalidateQueries({ queryKey: ["reservation-service", "flight-ticket", activeReservationId] });
-                    } catch {
-                      // silently skip — tickets can be added manually
-                    }
-                  }}
-                />
-              </div>
-            </div>
+            )}
           </div>
 
-          <div className="min-h-0 lg:col-span-7">
-            <div className="flex h-full min-h-0 flex-col gap-3 overflow-hidden">
-              <div className="min-h-0 flex-[5] pb-1">
-                <ReservationRecordsTable
-                  rows={filteredReservationRows}
-                  loading={reservationsQuery.isLoading}
-                  selectedReservationId={selectedReservationId}
-                  searchValue={reservationNumberSearch}
-                  onSearchChange={(value) => {
-                    setReservationNumberSearch(value);
-                    if (isSearchFromFinanceQueue) {
-                      setIsSearchFromFinanceQueue(false);
-                      appliedUrlSearchRef.current = null;
-                    }
-                  }}
-                  isFilteredFromFinanceQueue={isSearchFromFinanceQueue}
-                  onClearFinanceQueueFilter={handleClearFinanceQueueFilter}
-                  onSelect={handleSelectReservation}
-                  onAdd={handleAddReservation}
-                  onFinalize={() => {
-                    void finalizeReservationMutation.mutateAsync(form);
-                  }}
-                  canFinalize={Boolean(form.id) && !currentReservationIsReadOnly}
-                  isFinalizing={finalizeReservationMutation.isPending}
-                  onTake={() => {
-                    if (form.id) {
-                      void takeReservationMutation.mutateAsync(form.id);
-                    }
-                  }}
-                  canTake={Boolean(form.id) && !currentReservationIsReadOnly}
-                  isTaking={takeReservationMutation.isPending}
-                  onConfirm={() => {
-                    if (form.id) {
-                      void confirmReservationMutation.mutateAsync(form.id);
-                    }
-                  }}
-                  canConfirm={Boolean(form.id) && !currentReservationIsReadOnly}
-                  isConfirming={confirmReservationMutation.isPending}
-                  ownerLabelById={ownerLabelById}
-                  tourPackageLabelById={tourPackageLabelById}
-                  currencyLabelById={currencyLabelById}
-                  onPingPongSuccess={() => setToastMessage("Finance status updated.")}
-                />
+          <div className="min-h-0 flex-1">
+            <ReservationRecordsTable
+              rows={filteredReservationRows}
+              loading={reservationsQuery.isLoading}
+              selectedReservationId={selectedReservationId}
+              searchValue={reservationNumberSearch}
+              onSearchChange={(value) => {
+                setReservationNumberSearch(value);
+                if (isSearchFromFinanceQueue) {
+                  setIsSearchFromFinanceQueue(false);
+                  appliedUrlSearchRef.current = null;
+                }
+              }}
+              isFilteredFromFinanceQueue={isSearchFromFinanceQueue}
+              onClearFinanceQueueFilter={handleClearFinanceQueueFilter}
+              onSelect={handleSelectReservation}
+              onAdd={handleAddReservation}
+              onFinalize={() => {
+                void finalizeReservationMutation.mutateAsync(form);
+              }}
+              canFinalize={Boolean(form.id) && !currentReservationIsReadOnly}
+              isFinalizing={finalizeReservationMutation.isPending}
+              onTake={() => {
+                if (form.id) {
+                  void takeReservationMutation.mutateAsync(form.id);
+                }
+              }}
+              canTake={Boolean(form.id) && !currentReservationIsReadOnly}
+              isTaking={takeReservationMutation.isPending}
+              onConfirm={() => {
+                if (form.id) {
+                  void confirmReservationMutation.mutateAsync(form.id);
+                }
+              }}
+              canConfirm={Boolean(form.id) && !currentReservationIsReadOnly}
+              isConfirming={confirmReservationMutation.isPending}
+              ownerLabelById={ownerLabelById}
+              tourPackageLabelById={tourPackageLabelById}
+              currencyLabelById={currencyLabelById}
+              onPingPongSuccess={() => setToastMessage("Finance status updated.")}
+            />
+          </div>
+        </div>
+
+        {/* bottom-row: Zone B (Tourists panel, collapsible) + Zone D (Service tabs panel, never collapses) */}
+        <div className="flex min-h-0 flex-1 gap-3">
+          <div
+            className={`min-h-0 shrink-0 transition-all duration-300 ease-in-out ${isTouristsPanelCollapsed ? "w-10" : "w-full lg:w-[35%]"
+              }`}
+          >
+            {isTouristsPanelCollapsed ? (
+              <CollapseStrip label="Expand Tourists" onClick={toggleTouristsPanel} />
+            ) : (
+              <div className="flex h-full min-h-0 flex-col gap-2">
+                <div className="flex shrink-0 justify-end">
+                  <PanelCollapseToggle label="Collapse Tourists" onClick={toggleTouristsPanel} />
+                </div>
+                <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+                  <TouristManager
+                    key={`tourists-${activeReservationId ?? "none"}`}
+                    reservationId={activeReservationId}
+                    isReadOnly={currentReservationIsReadOnly}
+                    filterTouristIds={selectedHotelRoomTouristIds}
+                    onTouristAdded={async (tourist) => {
+                      if (currentReservationIsReadOnly || !activeReservationId || !form.tourPackageId) return;
+                      const parsedPkgId = Number.parseInt(form.tourPackageId, 10);
+                      if (!Number.isFinite(parsedPkgId)) return;
+                      try {
+                        const tourPackage = await getAdminTourPackage(parsedPkgId);
+                        const [existing, flightDetailsAll] = await Promise.all([
+                          listFlightTickets(activeReservationId),
+                          loadFlightDetails(tourPackage.flights),
+                        ]);
+                        const selectedFlights = pickArrivalDepartureFlights(flightDetailsAll);
+                        const existingKeys = new Set(existing.map((t) => `${t.flightId}-${t.touristId}`));
+                        for (const [flightIndex, flight] of selectedFlights.entries()) {
+                          const legCode: "ARR" | "DEP" = selectedFlights.length > 1 && flightIndex === selectedFlights.length - 1 ? "DEP" : "ARR";
+                          const key = `${flight.id}-${tourist.id}`;
+                          if (!existingKeys.has(key)) {
+                            const convertedFlight = await convertToReservationCurrency({
+                              amount: resolveFlightPriceForOwner(flight, form.ownerType),
+                              sourceCurrencyId: flight.currency,
+                              sourceCurrencyCode: flight.currencyCode,
+                              reservationCurrencyId: form.currencyId,
+                              currencyCodeById,
+                            });
+
+                            await createFlightTicket({
+                              reservation: activeReservationId,
+                              flight: flight.id,
+                              tourist: tourist.id,
+                              departure_date: flight.departureDate || null,
+                              arrival_date: flight.arrivalDate || null,
+                              departing_date: flight.departureDate || null,
+                              arriving_date: flight.arrivalDate || null,
+                              ticket_number: buildAutoTicketNumber({
+                                reservationId: activeReservationId,
+                                touristId: tourist.id,
+                                flightNumber: flight.flightNumber,
+                                legCode,
+                              }),
+                              pnr: buildAutoTicketNumber({
+                                reservationId: activeReservationId,
+                                touristId: tourist.id,
+                                flightNumber: flight.flightNumber,
+                                legCode,
+                              }),
+                              price: convertedFlight.amount,
+                              currency: convertedFlight.currencyId,
+                              paid: false,
+                              is_paid: false,
+                            });
+                          }
+                        }
+                        await queryClient.invalidateQueries({ queryKey: ["reservation-service", "flight-ticket", activeReservationId] });
+                      } catch {
+                        // silently skip — tickets can be added manually
+                      }
+                    }}
+                  />
+                </div>
               </div>
-              <div className="min-h-0 flex-[5] pt-1">
-                <ReservationTabsPanel
-                  reservationId={activeReservationId}
-                  ownerType={form.ownerType}
-                  tourPackageId={form.bookingMode === "WITH_TOUR_PACKAGE" ? form.tourPackageId : undefined}
-                  currencyOptions={currencyOptions}
-                  reservationCurrencyId={form.currencyId}
-                  currencyCodeById={currencyCodeById}
-                  onHotelBookingSelected={setSelectedHotelRoomTouristIds}
-                  isReadOnly={currentReservationIsReadOnly}
-                />
-              </div>
-            </div>
+            )}
+          </div>
+
+          <div className="min-h-0 flex-1">
+            <ReservationTabsPanel
+              reservationId={activeReservationId}
+              ownerType={form.ownerType}
+              tourPackageId={form.bookingMode === "WITH_TOUR_PACKAGE" ? form.tourPackageId : undefined}
+              currencyOptions={currencyOptions}
+              reservationCurrencyId={form.currencyId}
+              currencyCodeById={currencyCodeById}
+              onHotelBookingSelected={setSelectedHotelRoomTouristIds}
+              isReadOnly={currentReservationIsReadOnly}
+            />
           </div>
         </div>
       </div>
