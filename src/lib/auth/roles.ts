@@ -71,6 +71,10 @@ const ADMIN_ROUTE_ACCESS_RULES: readonly RouteAccessRule[] = [
     path: "/web-sections",
     allowedRoles: ["ADMIN"],
   },
+  {
+    path: "/settings",
+    allowedRoles: ["ADMIN"],
+  },
 ];
 
 function isAdminRole(role: string | undefined): role is AdminRole {

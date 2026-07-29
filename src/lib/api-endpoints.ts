@@ -89,3 +89,9 @@ export const PUBLIC_SITE_ENDPOINTS = {
   clientHero: `${API_V1}/public-site/client/hero/`,
   adminHero: `${API_V1}/public-site/admin/hero/`,
 };
+
+export const SETTINGS_ENDPOINTS = {
+  emailConfig: `${API_V1}/settings/email-config/`,
+  emailConfigDetail: (id: number) => `${API_V1}/settings/email-config/${id}/`,
+  emailConfigTest: (id: number) => `${API_V1}/settings/email-config/${id}/test/`,
+};

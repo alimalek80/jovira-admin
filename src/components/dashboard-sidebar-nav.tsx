@@ -17,6 +17,7 @@ import {
   Truck,
   Globe,
   Landmark,
+  Settings,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { canAccessAdminRoute } from "@/lib/auth/roles";
@@ -120,6 +121,16 @@ const navigationGroups: NavigationGroup[] = [
         href: "/web-sections",
         label: "Web Sections",
         icon: Globe,
+      },
+    ],
+  },
+  {
+    label: "System",
+    items: [
+      {
+        href: "/settings/email",
+        label: "Email Settings",
+        icon: Settings,
       },
     ],
   },
