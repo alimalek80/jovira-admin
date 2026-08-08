@@ -185,7 +185,7 @@ export default function HeroSectionSettings({
             type="text"
             value={form.tagline}
             onChange={(event) => setForm((previous) => ({ ...previous, tagline: event.target.value }))}
-            placeholder="Your short tag line"
+            placeholder="e.g. TOURISM & TRAVEL AGENCY"
             className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-slate-500 focus:ring-2 focus:ring-slate-300"
             required
           />
@@ -197,9 +197,8 @@ export default function HeroSectionSettings({
             type="text"
             value={form.title}
             onChange={(event) => setForm((previous) => ({ ...previous, title: event.target.value }))}
-            placeholder="Main hero title"
+            placeholder="Leave empty to hide title"
             className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-slate-500 focus:ring-2 focus:ring-slate-300"
-            required
           />
         </label>
 
@@ -208,7 +207,7 @@ export default function HeroSectionSettings({
           <textarea
             value={form.description}
             onChange={(event) => setForm((previous) => ({ ...previous, description: event.target.value }))}
-            placeholder="Hero description"
+            placeholder="e.g. EXPLORE. EXPERIENCE. REMEMBER."
             className="h-28 w-full resize-y rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-slate-500 focus:ring-2 focus:ring-slate-300"
             required
           />
